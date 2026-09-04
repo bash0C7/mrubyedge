@@ -500,6 +500,12 @@ pub(crate) fn consume_expr(
         RETFALSE => {
             op_retfalse(vm, operand)?;
         }
+        ADDILV => {
+            op_addilv(vm, operand)?;
+        }
+        SUBILV => {
+            op_subilv(vm, operand)?;
+        }
         _ => {
             unimplemented!("{:?}: Not supported yet", code)
         }
@@ -2262,6 +2268,47 @@ pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         target.hash_borrow_mut()?.insert(hashed, (key, val));
     }
     Ok(())
+}
+
+// ADDILV/SUBILV: R[a] = R[a] +/- c for an Integer or Float. Anything else
+// is sent `+` or `-` with c, as vm.c's OP_MATHILV does; R[b] and R[b+1] are
+// the working space it reserves for that call, unused here because the
+// call runs in the caller's window with the window saved around it.
+fn math_immediate_to_local(vm: &mut VM, operand: &Fetched, add: bool) -> Result<(), Error> {
+    let (a, _b, c) = operand.as_bbb()?;
+    let a = a as usize;
+    let value = vm.get_current_regs_cloned(a)?;
+    let amount = c as i64;
+    let result = match &value.value {
+        RValue::Integer(n) => {
+            RObject::integer(if add { n + amount } else { n - amount }).to_refcount_assigned()
+        }
+        RValue::Float(n) => RObject::float(if add {
+            n + amount as f64
+        } else {
+            n - amount as f64
+        })
+        .to_refcount_assigned(),
+        _ => {
+            let name = if add { "+" } else { "-" };
+            let arg = RObject::integer(amount).to_refcount_assigned();
+            let window = vm.current_irep.nregs.min(vm.current_regs().len());
+            let saved: Vec<Option<Rc<RObject>>> = vm.current_regs()[..window].to_vec();
+            let res = mrb_funcall(vm, Some(value), name, &[arg]);
+            vm.current_regs()[..window].clone_from_slice(&saved);
+            res?
+        }
+    };
+    vm.current_regs()[a].replace(result);
+    Ok(())
+}
+
+pub(crate) fn op_addilv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    math_immediate_to_local(vm, operand, true)
+}
+
+pub(crate) fn op_subilv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    math_immediate_to_local(vm, operand, false)
 }
 
 pub(crate) fn op_lambda(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

@@ -354,3 +354,168 @@ fn getidx0_asks_an_object_for_its_own_index_method_test() {
     // Assert
     assert_eq!(result, 42);
 }
+
+#[test]
+fn addilv_adds_the_immediate_to_an_integer_local_test() {
+    // a = 1; a += 4
+    let result = run_main(
+        4,
+        &[
+            (LOADI_1, B(1)),
+            (ADDILV, BBB(1, 2, 4)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 5);
+}
+
+#[test]
+fn subilv_subtracts_the_immediate_from_an_integer_local_test() {
+    // a = 7; a -= 2
+    let result = run_main(
+        4,
+        &[
+            (LOADI_7, B(1)),
+            (SUBILV, BBB(1, 2, 2)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 5);
+}
+
+#[test]
+fn addilv_adds_to_a_float_local_test() {
+    // a = 1.to_f; a += 4
+    let result = run_main(
+        4,
+        &[
+            (LOADI_1, B(1)),
+            (SEND0, BB(1, 0)),
+            (ADDILV, BBB(1, 2, 4)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["to_f"],
+        vec![],
+    );
+
+    // Assert
+    assert!(
+        matches!(result.value, RValue::Float(f) if f == 5.0),
+        "{:?}",
+        result
+    );
+}
+
+#[test]
+fn addilv_sends_plus_to_anything_else_test() {
+    // def +(n); n; end; a = self; a += 4
+    let plus = irep(1, 3, &[(ENTER, W(1 << 18)), (RETURN, B(1))], &[], vec![]);
+    let result = run_main(
+        5,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (LOADSELF, B(1)),
+            (ADDILV, BBB(1, 3, 4)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["+"],
+        vec![plus],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 4);
+}
+
+#[test]
+fn subilv_sends_minus_to_anything_else_test() {
+    // def -(n); 6; end; a = self; a -= 4
+    let minus = irep(
+        1,
+        3,
+        &[(ENTER, W(1 << 18)), (LOADI_6, B(2)), (RETURN, B(2))],
+        &[],
+        vec![],
+    );
+    let result = run_main(
+        5,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (LOADSELF, B(1)),
+            (SUBILV, BBB(1, 3, 4)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["-"],
+        vec![minus],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 6);
+}
+
+#[test]
+fn addilv_leaves_the_other_locals_alone_when_it_sends_test() {
+    // def +(n); n; end; other = 3; a = self; a += 4; other
+    let plus = irep(1, 3, &[(ENTER, W(1 << 18)), (RETURN, B(1))], &[], vec![]);
+    let result = run_main(
+        6,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (LOADI_3, B(2)),
+            (LOADSELF, B(1)),
+            (ADDILV, BBB(1, 4, 4)),
+            (RETURN, B(2)),
+            (STOP, Z),
+        ],
+        &["+"],
+        vec![plus],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 3);
+}
+
+#[test]
+fn addilv_on_an_object_without_plus_is_a_no_method_error_test() {
+    // a = nil; a += 1
+    let mut vm = VM::new_by_raw_irep(irep(
+        0,
+        4,
+        &[
+            (LOADNIL, B(1)),
+            (ADDILV, BBB(1, 2, 1)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    ));
+    let err = vm.run().unwrap_err();
+    let err = err.downcast_ref::<Error>().expect("a VM error");
+
+    // Assert
+    assert!(matches!(err, Error::NoMethodError(_)), "{:?}", err);
+}

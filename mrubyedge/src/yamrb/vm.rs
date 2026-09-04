@@ -682,7 +682,7 @@ impl VM {
         if let Some(ref parent) = parent_module {
             module.parent.replace(Some(parent.clone()));
         }
-        let object = RObject::module(module.clone()).to_refcount_assigned();
+        let object = RObject::module_of(module.clone(), self);
         self.consts.insert(name.to_string(), object.clone());
         if let Some(parent) = parent_module {
             parent.consts.borrow_mut().insert(name.to_string(), object);

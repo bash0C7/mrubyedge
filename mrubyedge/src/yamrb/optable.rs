@@ -2349,7 +2349,7 @@ pub(crate) fn op_module(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let parent_module = current_namespace(vm);
     let module = vm.define_module(&name, parent_module.clone());
 
-    let module_value = RObject::module(module.clone()).to_refcount_assigned();
+    let module_value = RObject::module_of(module.clone(), vm);
     if let Some(parent) = parent_module {
         parent
             .consts

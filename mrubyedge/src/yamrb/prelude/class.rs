@@ -17,6 +17,20 @@ pub(crate) fn initialize_class(vm: &mut VM) {
         "inspect",
         Box::new(mrb_module_inspect),
     );
+    // Without these a class prints as `#<Class:0x...>`: Object#to_s answers
+    // instead, and the name is lost.
+    mrb_define_cmethod(
+        vm,
+        module_class.clone(),
+        "to_s",
+        Box::new(mrb_module_inspect),
+    );
+    mrb_define_cmethod(
+        vm,
+        module_class.clone(),
+        "name",
+        Box::new(mrb_module_inspect),
+    );
 
     let class_class = vm.define_standard_class_with_superclass("Class", module_class);
 

@@ -247,3 +247,75 @@ MyClass.new.greet
         .expect("greet should return string");
     assert_eq!(value, "hello from Inner");
 }
+
+#[test]
+fn a_modules_instance_variables_are_the_same_from_anywhere() {
+    // A module's ivars live on the object that stands for it. Handing out a
+    // fresh wrapper per lookup gave the same module a second, empty set:
+    // written from the top level, read as nil from inside another module.
+    let code = "
+    module Store
+      def self.set(v)
+        @value = v
+      end
+      def self.get
+        @value
+      end
+    end
+
+    Store.set('kept')
+
+    module Reader
+      def self.read
+        Store.get
+      end
+    end
+
+    class Klass
+      def self.read
+        Store.get
+      end
+      def read
+        Store.get
+      end
+    end
+
+    [Store.get, Reader.read, Klass.read, Klass.new.read].join(',')
+    ";
+    let result = run("module_ivar_identity", code);
+    assert_eq!(&result, "kept,kept,kept,kept");
+}
+
+#[test]
+fn a_module_can_have_singleton_methods() {
+    let code = "
+    module Registry
+      class << self
+        def count
+          2
+        end
+      end
+
+      def self.double
+        count * 2
+      end
+    end
+
+    def test_main
+      Registry.double
+    end
+    ";
+    assert_eq!(run_i("module_singleton", code), 4);
+}
+
+#[test]
+fn a_class_prints_as_its_name() {
+    let code = "
+    module Outer
+      class Inner; end
+    end
+    [Outer::Inner.to_s, Outer::Inner.name, Outer.to_s].join(',')
+    ";
+    let result = run("module_to_s", code);
+    assert_eq!(&result, "Outer::Inner,Outer::Inner,Outer");
+}

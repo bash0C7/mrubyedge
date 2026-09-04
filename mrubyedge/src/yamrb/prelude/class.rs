@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     Error,
     yamrb::{
-        helpers::{mrb_define_cmethod, mrb_funcall},
+        helpers::{mrb_define_class_cmethod, mrb_define_cmethod, mrb_funcall},
         value::*,
         vm::VM,
     },
@@ -32,7 +32,7 @@ pub(crate) fn initialize_class(vm: &mut VM) {
         Box::new(mrb_module_inspect),
     );
 
-    let class_class = vm.define_standard_class_with_superclass("Class", module_class);
+    let class_class = vm.define_standard_class_with_superclass("Class", module_class.clone());
 
     // Create singleton class for Object class
     RObject::class(vm.object_class.clone(), vm).initialize_or_get_singleton_class_for_class(vm);
@@ -63,6 +63,16 @@ pub(crate) fn initialize_class(vm: &mut VM) {
         Box::new(mrb_class_attr_acceccor),
     );
     mrb_define_cmethod(vm, class_class, "ancestors", Box::new(mrb_class_ancestors));
+
+    // Module.new -> an anonymous module. Defined here rather than in
+    // initialize_module because a class method needs the Class class,
+    // which does not exist yet while Module is being set up.
+    mrb_define_class_cmethod(
+        vm,
+        module_class,
+        "new",
+        Box::new(super::module::mrb_module_class_new),
+    );
 }
 
 fn mrb_class_new(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

@@ -564,6 +564,7 @@ pub(crate) fn push_callinfo(
         target_class: vm.target_class.clone(),
         method_owner,
         has_block: Cell::new(false),
+        upper: vm.upper.clone(),
     };
     vm.current_callinfo = Some(Rc::new(callinfo));
 }
@@ -583,6 +584,7 @@ pub(crate) fn pop_callinfo(vm: &mut VM) {
     vm.pc.set(ci.pc);
     vm.current_regs_offset = ci.current_regs_offset;
     vm.target_class = ci.target_class.clone();
+    vm.upper = ci.upper.clone();
 }
 
 fn calcurate_pc(irep: &IREP, pc: usize, original_pc: usize) -> usize {
@@ -1381,6 +1383,10 @@ pub(crate) fn do_op_send_with_id(
     }
 
     vm.pc.set(0);
+    // A method defined with `define_method` is a block, and its body may
+    // read the variables of the scope that block was written in. Install
+    // that environment for the call; op_return puts the caller's back.
+    vm.upper = method.environ.clone();
     vm.current_irep = method.irep.ok_or_else(|| Error::internal("empry irep"))?;
     vm.current_regs_offset += a as usize;
     Ok(())
@@ -1877,6 +1883,7 @@ fn do_return(vm: &mut VM, a: usize, value: Option<Rc<RObject>>) -> Result<(), Er
     vm.pc.set(ci.pc);
     vm.current_regs_offset = ci.current_regs_offset;
     vm.target_class = ci.target_class.clone();
+    vm.upper = ci.upper.clone();
     if vm.current_regs()[0].is_none() {
         unreachable!("debug");
     }

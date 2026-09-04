@@ -319,3 +319,78 @@ fn a_class_prints_as_its_name() {
     let result = run("module_to_s", code);
     assert_eq!(&result, "Outer::Inner,Outer::Inner,Outer");
 }
+
+#[test]
+fn module_class_eval_defines_an_instance_method() {
+    let code = "
+    class Foo
+      def existing
+        1
+      end
+    end
+
+    def test_main
+      Foo.class_eval do
+        def added
+          99
+        end
+      end
+      Foo.new.added
+    end
+    ";
+    assert_eq!(run_i("module_class_eval", code), 99);
+}
+
+#[test]
+fn module_private_instance_methods_is_always_empty() {
+    // The VM has no method visibility: every method, including one declared
+    // after `private`, is public. Module#private_instance_methods reflects
+    // that by always answering an empty array.
+    let code = "
+    class Foo
+      def pub_method
+        1
+      end
+
+      private
+      def priv_method
+        2
+      end
+    end
+
+    def test_main
+      Foo.private_instance_methods.size
+    end
+    ";
+    assert_eq!(run_i("module_private_instance_methods", code), 0);
+}
+
+#[test]
+fn module_visibility_declarations_are_accepted_as_noops() {
+    // private/protected/public do not restrict calls in this VM: they are
+    // accepted, with or without a symbol argument, so that code carrying
+    // them still loads, and the method they name stays callable.
+    let code = "
+    class Foo
+      def pub_method
+        1
+      end
+
+      def priv_method
+        2
+      end
+
+      private
+      protected
+      private :priv_method
+
+      public
+      public :pub_method
+    end
+
+    def test_main
+      [Foo.new.priv_method, Foo.public.inspect, Foo.public(:pub_method).inspect].join(',')
+    end
+    ";
+    assert_eq!(run_s("module_visibility_noop", code), "2,nil,:pub_method");
+}

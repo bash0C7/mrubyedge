@@ -305,3 +305,15 @@ fn a_rescue_still_catches_what_is_inside_it_test() {
     let result: String = result.as_ref().try_into().unwrap();
     assert_eq!(result, "rescued:boom");
 }
+
+#[test]
+fn no_matching_pattern_error_is_a_standard_error_test() {
+    // What OP_MATCHERR raises, so `rescue => e` catches a failed `case/in`.
+    let code = "
+    def test_main
+      NoMatchingPatternError.new.is_a?(StandardError)
+    end
+    ";
+    // Assert
+    assert!(run_b("no_matching_pattern_error", code));
+}

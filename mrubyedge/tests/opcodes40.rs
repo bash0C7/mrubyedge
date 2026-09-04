@@ -740,3 +740,51 @@ fn sdef_defines_a_singleton_method_on_a_module_test() {
     // Assert
     assert_eq!(result, 7);
 }
+
+#[test]
+fn matcherr_passes_when_a_pattern_matched_test() {
+    // a pattern matched (R1 = true); 7
+    let result = run_main(
+        3,
+        &[
+            (LOADT, B(1)),
+            (MATCHERR, B(1)),
+            (LOADI_7, B(1)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn matcherr_raises_when_nothing_matched_test() {
+    // no pattern matched (R1 = false) and no else
+    let mut vm = VM::new_by_raw_irep(irep(
+        0,
+        3,
+        &[
+            (LOADF, B(1)),
+            (MATCHERR, B(1)),
+            (LOADI_7, B(1)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    ));
+    let err = vm.run().unwrap_err();
+    let err = err.downcast_ref::<Error>().expect("a VM error");
+
+    // Assert
+    assert!(
+        matches!(err, Error::TaggedError("NoMatchingPatternError", msg) if msg == "pattern not matched"),
+        "{:?}",
+        err
+    );
+}

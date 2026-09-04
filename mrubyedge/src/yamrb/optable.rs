@@ -1305,10 +1305,17 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             }
         }
     }
+    let block_arg = arg_info.b as usize;
+    let call_site_kwargs = vm.kargs.borrow().as_ref().map_or(0, |m| m.len());
+    let blk_val = if block_arg == 1 {
+        vm.current_regs()[argc + call_site_kwargs * 2 + 1].take()
+    } else {
+        None
+    };
     let optional_arg = arg_info.o as usize;
+    let m2_argc = arg_info.m2 as usize;
     if optional_arg > 0 {
-        let m2_argc = arg_info.m2 as usize;
-        let total_preset_args = argc.saturating_sub(m1_argc + m2_argc);
+        let total_preset_args = argc.saturating_sub(m1_argc + m2_argc).min(optional_arg);
         for peek_pc in 0..total_preset_args {
             match vm.current_irep.code[vm.pc.get() + peek_pc].code {
                 OpCode::JMP => {}
@@ -1322,23 +1329,23 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
     let splat_arg = arg_info.r as usize;
     if splat_arg == 1 {
-        let total_args = argc;
-        let passed_args = total_args.saturating_sub(m1_argc);
+        let rest_start = m1_argc + optional_arg + 1;
+        let rest_end = argc.saturating_sub(m2_argc);
         let mut array = Vec::new();
-        for i in 0..passed_args {
-            if let Some(val) = vm.current_regs()[m1_argc + i + 1].take() {
-                array.push(val);
+        if rest_end >= rest_start {
+            for i in rest_start..=rest_end {
+                if let Some(val) = vm.current_regs()[i].take() {
+                    array.push(val);
+                }
             }
         }
         let splat = RObject::array(array);
-        vm.current_regs()[m1_argc + splat_arg].replace(splat.to_refcount_assigned());
+        vm.current_regs()[m1_argc + optional_arg + splat_arg].replace(splat.to_refcount_assigned());
     }
+    let named_kw = arg_info.k as usize;
     let kwrest_arg = arg_info.d as usize;
-    let kwrest_pos = if kwrest_arg == 1 {
-        m1_argc + splat_arg + kwrest_arg
-    } else {
-        0
-    };
+    let dict_pos = 1 + m1_argc + optional_arg + splat_arg + m2_argc;
+    let kwrest_pos = if kwrest_arg == 1 { dict_pos } else { 0 };
     kwarg_op_enter(vm, kwrest_pos);
     if kwrest_arg == 1 {
         let mut map = RHashMap::default();
@@ -1353,6 +1360,16 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
         let kwrest = RObject::hash(map);
         vm.current_regs()[kwrest_pos].replace(kwrest.to_refcount_assigned());
+    }
+
+    if block_arg == 1 {
+        let dict_reserved = if named_kw > 0 || kwrest_arg == 1 {
+            1
+        } else {
+            0
+        };
+        let block_pos = dict_pos + dict_reserved;
+        vm.current_regs()[block_pos].replace(blk_val.unwrap_or_else(|| Rc::new(RObject::nil())));
     }
 
     Ok(())

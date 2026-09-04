@@ -114,6 +114,91 @@ result[:count] + result[:other]
 }
 
 #[test]
+fn optional_and_rest_arg_fewer_args() {
+    let code = r#"
+def f(a, b=1, *r)
+  [a, b, r]
+end
+
+f(1).inspect
+    "#;
+    let binary = mrbc_compile("optional_and_rest_arg_fewer_args", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_str: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result_str, "[1, 1, []]");
+}
+
+#[test]
+fn optional_and_rest_arg_exact_args() {
+    let code = r#"
+def f(a, b=1, *r)
+  [a, b, r]
+end
+
+f(1, 2).inspect
+    "#;
+    let binary = mrbc_compile("optional_and_rest_arg_exact_args", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_str: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result_str, "[1, 2, []]");
+}
+
+#[test]
+fn optional_and_rest_arg_extra_args() {
+    let code = r#"
+def f(a, b=1, *r)
+  [a, b, r]
+end
+
+f(1, 2, 3).inspect
+    "#;
+    let binary = mrbc_compile("optional_and_rest_arg_extra_args", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_str: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result_str, "[1, 2, [3]]");
+}
+
+#[test]
+fn optional_rest_kw_block_mandatory_only() {
+    let code = r#"
+def f(a, b=1, *r, k: 2, &blk)
+  [a, b, r, k, blk.nil?]
+end
+
+f(1).inspect
+    "#;
+    let binary = mrbc_compile("optional_rest_kw_block_mandatory_only", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_str: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result_str, "[1, 1, [], 2, true]");
+}
+
+#[test]
+fn optional_rest_extra_args_with_keyword() {
+    let code = r#"
+def f(a, b=1, *r, k: 2, &blk)
+  [a, b, r, k, blk.nil?]
+end
+
+f(1, 2, 3, k: 5).inspect
+    "#;
+    let binary = mrbc_compile("optional_rest_extra_args_with_keyword", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_str: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result_str, "[1, 2, [3], 5, true]");
+}
+
+#[test]
 fn default_arg_mixed_types() {
     let code = r##"
 def format_message(msg, prefix="Info", level=1, enabled=true)

@@ -87,3 +87,64 @@ fn super_from_a_funcall_frame_test() {
     ";
     assert_eq!(run_s("super_in_initialize", code), "element");
 }
+
+#[test]
+fn constant_reachable_from_an_instance_method_test() {
+    // The constant belongs to the class's namespace; the method body reads
+    // it unqualified, with self being an instance rather than the class.
+    let code = "
+    module Markup
+      SAFE = ['div', 'span']
+
+      class Element
+        LIMIT = 2
+
+        def safe_count
+          SAFE.size + LIMIT
+        end
+      end
+    end
+
+    def test_main
+      Markup::Element.new.safe_count
+    end
+    ";
+    assert_eq!(run_i("const_from_instance_method", code), 4);
+}
+
+#[test]
+fn constant_from_a_superclass_test() {
+    let code = "
+    class Base
+      DEFAULT = 7
+
+      def value
+        DEFAULT
+      end
+    end
+
+    class Child < Base
+    end
+
+    def test_main
+      Child.new.value
+    end
+    ";
+    assert_eq!(run_i("const_from_superclass", code), 7);
+}
+
+#[test]
+fn constant_belongs_to_its_namespace_test() {
+    let code = "
+    module Outer
+      module Inner
+        VALUE = 3
+      end
+    end
+
+    def test_main
+      Outer::Inner::VALUE
+    end
+    ";
+    assert_eq!(run_i("namespaced_const", code), 3);
+}

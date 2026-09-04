@@ -34,6 +34,11 @@ fn call_block(
         prev_args.push(old);
     }
 
+    // Record the argument count for OP_ENTER (see VM::funcall_argc).
+    let prev_funcall_argc = vm.funcall_argc.replace(args.len());
+    // No call site, so no keyword register slots to account for.
+    let prev_kargs_slots = vm.kargs_slots.replace(0);
+
     vm.pc.set(0);
     vm.current_irep = block
         .irep
@@ -43,6 +48,9 @@ fn call_block(
     vm.upper = block.environ;
 
     let res = vm.run_internal();
+
+    vm.funcall_argc = prev_funcall_argc;
+    vm.kargs_slots.set(prev_kargs_slots);
 
     if let Some(prev) = prev_self {
         vm.current_regs()[0].replace(prev);

@@ -135,6 +135,9 @@ use super::{helpers::mrb_funcall, value::*, vm::*};
 // }
 //
 
+// mruby 4.0 widened the ENTER flags to 24 bits: n1 (bit 23) is set for
+// `&nil`, a method that refuses a block.
+const ENTER_N1_MASK: u32 = 0b1 << 23;
 const ENTER_M1_MASK: u32 = 0b11111 << 18;
 const ENTER_O_MASK: u32 = 0b11111 << 13;
 const ENTER_R_MASK: u32 = 0b1 << 12;
@@ -404,12 +407,12 @@ pub(crate) fn consume_expr(
         HASH => {
             op_hash(vm, operand)?;
         }
-        // HASHADD => {
-        //     // op_hashadd(vm, &operand)?;
-        // }
-        // HASHCAT => {
-        //     // op_hashcat(vm, &operand)?;
-        // }
+        HASHADD => {
+            op_hashadd(vm, operand)?;
+        }
+        HASHCAT => {
+            op_hashcat(vm, operand)?;
+        }
         LAMBDA => {
             op_lambda(vm, operand)?;
         }
@@ -476,6 +479,10 @@ pub(crate) fn consume_expr(
     }
     Ok(())
 }
+
+// mruby's CALL_MAXARGS. In OP_SEND's n and k nibbles it means "packed":
+// arguments arrive as one array, keyword arguments as one hash.
+pub(crate) const CALL_MAXARGS: usize = 15;
 
 pub(crate) fn push_callinfo(
     vm: &mut VM,
@@ -961,9 +968,7 @@ pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_ssendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
-    let n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
-    do_op_send(vm, 0, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, 0, Some(block_reg(a, c)), a, b, c)
 }
 
 pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -973,9 +978,17 @@ pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_sendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
+    do_op_send(vm, a as usize, Some(block_reg(a, c)), a, b, c)
+}
+
+// Where OP_SENDB left the block: just past the arguments and the keyword
+// arguments, each counted as one register when packed.
+pub(crate) fn block_reg(a: u8, c: u8) -> usize {
     let n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
-    do_op_send(vm, a as usize, Some(a as usize + n + k * 2 + 1), a, b, c)
+    let n_slots = if n == CALL_MAXARGS { 1 } else { n };
+    let kw_slots = if k == CALL_MAXARGS { 1 } else { k * 2 };
+    a as usize + n_slots + kw_slots + 1
 }
 
 pub(crate) fn do_op_send(
@@ -988,6 +1001,11 @@ pub(crate) fn do_op_send(
 ) -> Result<(), Error> {
     let mut n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
+    // CALL_MAXARGS in either nibble means "packed": `f(*args)` hands over one
+    // array and `f(**opts)` one hash, each in a single register.
+    let arg_splat = n == CALL_MAXARGS;
+    let kw_splat = k == CALL_MAXARGS;
+    let kw_slots = if kw_splat { 1 } else { k * 2 };
 
     let method_id = vm.current_irep.syms[b as usize].clone();
     if &method_id.name == "__debug__vm_info" {
@@ -997,13 +1015,34 @@ pub(crate) fn do_op_send(
         return Ok(());
     }
 
-    let block_index = a as usize + n + k * 2 + 1;
-
     let recv = if recv_index == 0 {
         vm.getself()?
     } else {
         vm.get_current_regs_cloned(recv_index)?
     };
+
+    // `f(*args)` arrives as one array. A Ruby callee reads its arguments
+    // straight out of the registers, so the array has to be spread there,
+    // and whatever follows it (the keyword register and the block) shifted
+    // out of the way.
+    if arg_splat {
+        let packed = vm.get_current_regs_cloned(a as usize + 1)?;
+        let unpacked = packed.array_borrow_mut()?.clone();
+        let tail: Vec<Option<Rc<RObject>>> = (0..=kw_slots)
+            .map(|i| vm.current_regs()[a as usize + 2 + i].clone())
+            .collect();
+        n = unpacked.len();
+        for (i, val) in unpacked.iter().enumerate() {
+            vm.current_regs()[a as usize + 1 + i] = Some(val.clone());
+        }
+        for (i, val) in tail.into_iter().enumerate() {
+            vm.current_regs()[a as usize + 1 + n + i] = val;
+        }
+    }
+    let n_slots = n;
+    let block_index = a as usize + n_slots + kw_slots + 1;
+    let blk_index = blk_index.map(|given| if arg_splat { block_index } else { given });
+
     let mut args = (0..n)
         .map(|i| {
             vm.get_current_regs_cloned(a as usize + i + 1)
@@ -1012,16 +1051,40 @@ pub(crate) fn do_op_send(
         .collect::<Vec<_>>();
 
     let mut map = RHashMap::default();
-    for i in 0..k {
-        let key = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 1)?
-            .intern()?;
-        let val = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 2)?
-            .clone();
-        map.insert(key, val);
+    let mut raw = Vec::with_capacity(k);
+    if kw_splat {
+        let hash = vm.get_current_regs_cloned(a as usize + n_slots + 1)?;
+        for (_, (key, val)) in hash.hash_borrow_mut()?.iter() {
+            map.insert(key.intern()?, val.clone());
+            raw.push((key.clone(), val.clone()));
+        }
+    } else {
+        for i in 0..k {
+            let key_obj = vm.get_current_regs_cloned(a as usize + n_slots + i * 2 + 1)?;
+            let key = key_obj.intern()?;
+            let val = vm
+                .get_current_regs_cloned(a as usize + n_slots + i * 2 + 2)?
+                .clone();
+            map.insert(key, val.clone());
+            raw.push((key_obj, val));
+        }
     }
+    // A Rust-implemented method has no OP_ENTER to fold keyword arguments
+    // into a trailing Hash, and almost none of them declare keywords:
+    // `h.merge(href: path)` is a Hash argument, not a keyword call. Build it
+    // here, while the pairs are still at hand.
+    let trailing_kwargs = if raw.is_empty() {
+        None
+    } else {
+        let mut hash = RHashMap::default();
+        for (key, value) in raw.iter() {
+            hash.insert(key.as_hash_key()?, (key.clone(), value.clone()));
+        }
+        Some(RObject::hash(hash).to_refcount_assigned())
+    };
     vm.kargs.borrow_mut().replace(map);
+    vm.kargs_raw.borrow_mut().replace(raw);
+    vm.kargs_slots.set(kw_slots);
 
     if let Some(blk_index) = blk_index {
         let blk_val = vm.get_current_regs_cloned(blk_index)?;
@@ -1044,7 +1107,13 @@ pub(crate) fn do_op_send(
     };
     let (owner_module, method) = resolve_method(&klass, &method_id.name)
         .or_else(|| {
-            unshift_method_name(vm, &mut args, &method_id, a as usize, n + k * 2 + 1);
+            unshift_method_name(
+                vm,
+                &mut args,
+                &method_id,
+                a as usize,
+                n_slots + kw_slots + 1,
+            );
             n += 1;
             resolve_method(&klass, "method_missing")
         })
@@ -1067,6 +1136,9 @@ pub(crate) fn do_op_send(
 
     vm.current_regs()[a as usize].replace(recv.clone());
     if !method.is_rb_func {
+        if let Some(trailing) = trailing_kwargs {
+            args.push(trailing);
+        }
         kwarg_op_enter(vm, 0);
 
         let func = vm
@@ -1135,6 +1207,9 @@ fn unshift_method_name(
 
 fn kwarg_op_enter(vm: &mut VM, rest_pos: usize) {
     let kwrest_reg = Cell::new(rest_pos);
+    // Declared keywords are looked up by symbol, so the raw pairs are not
+    // needed here. Drop them so they cannot leak into a later call.
+    vm.kargs_raw.borrow_mut().take();
     let current_arg = if let Some(args) = vm.kargs.borrow_mut().take() {
         let upper = vm.current_kargs.borrow_mut().take();
         KArgs {
@@ -1266,6 +1341,7 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub(crate) struct EnterArgInfo {
+    pub n1: u32,
     pub m1: u32,
     pub o: u32,
     pub r: u32,
@@ -1278,6 +1354,7 @@ pub(crate) struct EnterArgInfo {
 impl From<u32> for EnterArgInfo {
     fn from(val: u32) -> Self {
         EnterArgInfo {
+            n1: (val & ENTER_N1_MASK) >> 23,
             m1: (val & ENTER_M1_MASK) >> 18,
             o: (val & ENTER_O_MASK) >> 13,
             r: (val & ENTER_R_MASK) >> 12,
@@ -1291,9 +1368,74 @@ impl From<u32> for EnterArgInfo {
 
 pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_w()?;
-    let argc = vm.current_callinfo.as_ref().map_or(0, |ci| ci.n_args);
     let arg_info = EnterArgInfo::from(a);
     let m1_argc = arg_info.m1 as usize;
+    // A frame entered through mrb_funcall has no callinfo; call_block leaves
+    // the count on the VM instead.
+    let argc = match vm.current_callinfo.as_ref() {
+        Some(ci) => ci.n_args,
+        None => {
+            // mrb_funcall hands the block over as the trailing argument, the
+            // way a Rust-implemented method receives it, while a compiled call
+            // site keeps it out of the count. Drop it back out.
+            let passed = vm.funcall_argc.unwrap_or(0);
+            let trailing_block = arg_info.b == 1
+                && passed > 0
+                && vm
+                    .current_regs()
+                    .get(passed)
+                    .and_then(|reg| reg.as_ref())
+                    .is_some_and(|arg| matches!(arg.value, RValue::Proc(_)));
+            if trailing_block { passed - 1 } else { passed }
+        }
+    };
+
+    // The caller leaves the block (or nil) in the register right after the
+    // arguments it actually passed, while the declared `&block` parameter
+    // lives at a slot derived from the signature. Those are the same
+    // register only when the method takes plain required arguments; a rest
+    // or optional argument moves the declared slot further out, and the
+    // splat below is about to overwrite the incoming one. Take it now.
+    let passed_kw = vm.kargs.borrow().as_ref().map_or(0, |args| args.len());
+    let kargs_slots = vm.kargs_slots.get();
+    let incoming_block = vm
+        .current_regs()
+        .get(argc + kargs_slots + 1)
+        .and_then(|reg| reg.clone())
+        .filter(|blk| !blk.is_nil());
+    // `&nil` in the signature: a block is refused, not ignored.
+    if arg_info.n1 == 1 && incoming_block.is_some() {
+        return Err(Error::ArgumentError("no block accepted".to_string()));
+    }
+    // A caller writing `m(1, key: 2)` cannot know whether the callee declares
+    // keyword parameters; the compiler emits keyword pairs either way. When
+    // the signature has none, they collapse into one trailing Hash argument
+    // (`props = {}` is how a Ruby DSL usually spells its attributes) and the
+    // pairs' registers become that argument's slot.
+    let mut argc = argc;
+    if arg_info.k == 0 && arg_info.d == 0 && passed_kw > 0 {
+        // Keys keep the form the caller wrote: `m(key: 1)` is a Symbol,
+        // `m("key" => 1)` a String. `kargs` alone cannot tell them apart.
+        let passed = vm.kargs.borrow_mut().take().unwrap_or_default();
+        let raw = vm.kargs_raw.borrow_mut().take();
+        let mut map = RHashMap::default();
+        match raw {
+            Some(raw) => {
+                for (key, value) in raw.into_iter() {
+                    map.insert(key.as_hash_key()?, (key, value));
+                }
+            }
+            None => {
+                for (key, value) in passed.iter() {
+                    let key = RObject::symbol(key.clone()).to_refcount_assigned();
+                    map.insert(key.as_hash_key()?, (key, value.clone()));
+                }
+            }
+        }
+        vm.current_regs()[argc + 1].replace(RObject::hash(map).to_refcount_assigned());
+        argc += 1;
+    }
+
     for i in 0..m1_argc {
         match vm.current_regs()[i + 1].as_ref() {
             Some(_) => {}
@@ -1334,8 +1476,10 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         vm.current_regs()[m1_argc + splat_arg].replace(splat.to_refcount_assigned());
     }
     let kwrest_arg = arg_info.d as usize;
+    // `**kwrest` sits after the positional parameters and before the
+    // declared keywords, which OP_KARG addresses by register of its own.
     let kwrest_pos = if kwrest_arg == 1 {
-        m1_argc + splat_arg + kwrest_arg
+        1 + m1_argc + optional_arg + splat_arg + arg_info.m2 as usize
     } else {
         0
     };
@@ -1353,6 +1497,19 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
         let kwrest = RObject::hash(map);
         vm.current_regs()[kwrest_pos].replace(kwrest.to_refcount_assigned());
+    }
+
+    // Put the block where the method body expects to find it. Without a
+    // block the slot still has to hold nil: the body reads it either way.
+    if arg_info.b == 1 {
+        // Keyword arguments take one register between the positional
+        // parameters and the block, whatever their number: the caller hands
+        // over a single dict and OP_KARG lifts the declared ones out of it
+        // into locals allocated further up.
+        let kdict = usize::from(arg_info.k > 0 || arg_info.d == 1);
+        let block_pos = 1 + m1_argc + optional_arg + splat_arg + arg_info.m2 as usize + kdict;
+        let block = incoming_block.unwrap_or_else(|| RObject::nil().to_refcount_assigned());
+        vm.current_regs()[block_pos].replace(block);
     }
 
     Ok(())
@@ -1404,18 +1561,30 @@ pub(crate) fn op_keyend(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_karg(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
-    let val = {
-        let key = vm.current_irep.syms[b as usize].clone();
+    let key = vm.current_irep.syms[b as usize].clone();
+    let (val, kwrest_pos) = {
         let kargs = vm.current_kargs.borrow();
         let kargs = kargs
             .as_ref()
             .ok_or_else(|| Error::internal("no kargs found"))?;
 
+        let kwrest_pos = kargs.kwrest_reg.get();
         let mut args = kargs.args.borrow_mut();
-        args.remove(&key).ok_or_else(|| {
+        let val = args.remove(&key).ok_or_else(|| {
             Error::ArgumentError(format!("keyword argument '{}' not found", key.name))
-        })?
+        })?;
+        (val, kwrest_pos)
     };
+
+    // A keyword the signature declares is not part of `**rest`. OP_KEY_P
+    // drops the optional ones; a required keyword goes straight to KARG,
+    // so it has to drop its own.
+    if kwrest_pos != 0 {
+        let kwrest = vm.get_current_regs_cloned(kwrest_pos)?;
+        let key_robj = RObject::symbol(key).to_refcount_assigned();
+        mrb_hash_delete(kwrest, key_robj)?;
+    }
+
     vm.current_regs()[a as usize].replace(val);
     Ok(())
 }
@@ -1880,6 +2049,41 @@ pub(crate) fn op_hash(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
     let val = RObject::hash(hash);
     vm.current_regs()[a].replace(Rc::new(val));
+    Ok(())
+}
+
+// hash_push(R[a], R[a+1]..R[a+b*2]). The pairs a hash literal writes
+// after a **splat has already produced the hash in R[a].
+pub(crate) fn op_hashadd(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let a = a as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    for i in 0..b as usize {
+        let key = vm.get_current_regs_cloned(a + i * 2 + 1)?;
+        let val = vm.get_current_regs_cloned(a + i * 2 + 2)?;
+        target
+            .hash_borrow_mut()?
+            .insert(key.as_hash_key()?, (key, val));
+    }
+    Ok(())
+}
+
+// R[a] = hash_cat(R[a], R[a+1]). **other in a hash literal or an
+// argument list. Later keys win, as in Hash#merge.
+pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    let other = vm.get_current_regs_cloned(a + 1)?;
+
+    // Collect first: `h = {**h}` would otherwise borrow the same RefCell twice.
+    let pairs: Vec<_> = other
+        .hash_borrow_mut()?
+        .iter()
+        .map(|(hashed, (key, val))| (hashed.clone(), key.clone(), val.clone()))
+        .collect();
+    for (hashed, key, val) in pairs {
+        target.hash_borrow_mut()?.insert(hashed, (key, val));
+    }
     Ok(())
 }
 

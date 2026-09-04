@@ -64,6 +64,24 @@ fn mrb_class_new(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error
 
     let obj = RObject::instance(class).to_refcount_assigned();
 
+    // `Foo.new(x: 1)` means `initialize(x: 1)`: put the keywords OP_SEND parked on this frame back.
+    let forwarded = vm.current_kargs.borrow().as_ref().map(|kargs| {
+        kargs
+            .args
+            .borrow()
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<RHashMap<RSym, Rc<RObject>>>()
+    });
+    let mut args = args;
+    if let Some(forwarded) = forwarded
+        && !forwarded.is_empty()
+    {
+        // Drop the trailing Hash copy OP_SEND also appended, or `initialize` sees the kwargs twice.
+        args = &args[..args.len().saturating_sub(1)];
+        vm.kargs.borrow_mut().replace(forwarded);
+    }
+
     mrb_funcall(vm, Some(obj.clone()), "initialize", args)?;
 
     Ok(obj)

@@ -405,3 +405,38 @@ fn hash_flatten_test() {
     assert!(ints.contains(&1));
     assert!(ints.contains(&2));
 }
+
+#[test]
+fn a_double_splat_inside_a_hash_literal_merges_it_test() {
+    // OP_HASHCAT and OP_HASHADD.
+    let code = "
+    other = { b: 2, c: 3 }
+    h = { a: 1, **other, d: 4 }
+    h.keys.map { |k| k.to_s }.sort.join(',')
+    ";
+    let binary = mrbc_compile("a_double_splat_inside_a_hash_literal_merges_it", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "a,b,c,d");
+}
+
+#[test]
+fn a_later_key_wins_over_the_splatted_one_test() {
+    let code = "
+    other = { a: 1 }
+    h = { **other, a: 2 }
+    h[:a].to_s
+    ";
+    let binary = mrbc_compile("a_later_key_wins_over_the_splatted_one", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "2");
+}

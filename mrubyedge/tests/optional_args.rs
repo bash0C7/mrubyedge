@@ -130,3 +130,125 @@ format_message("Test")
     let result_str: String = result.as_ref().try_into().unwrap();
     assert_eq!(result_str, "[Info:1] Test");
 }
+
+// Class#new reaches initialize through mrb_funcall, which builds a frame with
+// no callinfo for OP_ENTER to read the argument count off.
+
+#[test]
+fn optional_args_survive_class_new() {
+    let code = r##"
+class Element
+  attr_reader :tag, :props, :children
+  def initialize(tag, props = {}, children = [])
+    @tag = tag
+    @props = props
+    @children = children
+  end
+end
+
+e = Element.new("div", {"class" => "probe"}, ["a", "b"])
+"#{e.tag}/#{e.props.size}/#{e.children.size}"
+    "##;
+    let result = run("optional_args_class_new", code);
+
+    // Assert
+    assert_eq!(result, "div/1/2");
+}
+
+#[test]
+fn optional_args_default_when_omitted_in_class_new() {
+    let code = r##"
+class Element
+  attr_reader :props, :children
+  def initialize(tag, props = {}, children = [])
+    @props = props
+    @children = children
+  end
+end
+
+e = Element.new("div")
+"#{e.props.size}/#{e.children.size}"
+    "##;
+    let result = run("optional_args_class_new_default", code);
+
+    // Assert
+    assert_eq!(result, "0/0");
+}
+
+#[test]
+fn rest_arg_survives_class_new() {
+    let code = r#"
+class Bag
+  attr_reader :items
+  def initialize(*items)
+    @items = items
+  end
+end
+
+Bag.new(1, 2, 3).items.join(",")
+    "#;
+    let result = run("rest_arg_class_new", code);
+
+    // Assert
+    assert_eq!(result, "1,2,3");
+}
+
+#[test]
+fn block_arg_still_reaches_a_method_called_through_funcall() {
+    // Enumerable#map calls `each` through mrb_funcall with the block as the
+    // trailing argument. The count must not mistake it for a positional.
+    let code = r#"
+class MyCollection
+  def each(&block)
+    block.call(1)
+    block.call(2)
+  end
+  include Enumerable
+end
+
+MyCollection.new.map { |x| x * 3 }.join(",")
+    "#;
+    let result = run("block_arg_via_funcall", code);
+
+    // Assert
+    assert_eq!(result, "3,6");
+}
+
+// The caller leaves the block right after the arguments it passed; the
+// declared `&block` lives at a slot derived from the signature.
+
+#[test]
+fn block_argument_after_rest_is_nil_when_no_block_given() {
+    let code = "
+    class Dispatch
+      def call(name, *args, &block)
+        return name.to_s if block.nil?
+        block.call(name)
+      end
+    end
+
+    def test_main
+      Dispatch.new.call(:plain)
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("block_after_rest_no_block", code), "plain");
+}
+
+#[test]
+fn block_argument_after_rest_receives_the_block() {
+    let code = "
+    class Dispatch
+      def call(name, *args, &block)
+        return name.to_s if block.nil?
+        block.call(name)
+      end
+    end
+
+    def test_main
+      Dispatch.new.call(:blocky) { |n| n.to_s + '!' }
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("block_after_rest_with_block", code), "blocky!");
+}

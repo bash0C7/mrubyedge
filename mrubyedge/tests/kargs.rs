@@ -229,3 +229,201 @@ complex_method(10, 20, 30, required: 5, foo: 15, bar: 25)
     let result_int: i32 = result.as_ref().try_into().unwrap();
     assert_eq!(result_int, 10 + 5 + 20 * 10 + 30 * 10 + 15 * 15 + 25 * 15); // 1050
 }
+
+// A call site cannot know whether the callee declares keyword parameters, so
+// the compiler emits keyword pairs either way. When the signature has none,
+// they belong in one trailing Hash argument.
+
+#[test]
+fn keywords_become_a_trailing_hash_when_the_method_takes_none_test() {
+    let code = r##"
+def tag(name, props = {})
+  "#{name}:#{props.size}:#{props[:class]}"
+end
+
+tag("div", class: "probe", id: "main")
+    "##;
+    let result = run("kwargs_to_positional_hash", code);
+
+    // Assert
+    assert_eq!(result, "div:2:probe");
+}
+
+#[test]
+fn keywords_become_a_trailing_hash_for_a_required_parameter_test() {
+    let code = r#"
+def only(props)
+  props.size
+end
+
+only(a: 1, b: 2, c: 3).to_s
+    "#;
+    let result = run("kwargs_to_required_hash", code);
+
+    // Assert
+    assert_eq!(result, "3");
+}
+
+#[test]
+fn keywords_reach_initialize_through_class_new_test() {
+    let code = r##"
+class Widget
+  attr_reader :props
+  def initialize(name, props = {})
+    @props = props
+  end
+end
+
+Widget.new("w", class: "probe").props[:class]
+    "##;
+    let result = run("keywords_reach_initialize_through_class_new", code);
+
+    // Assert
+    assert_eq!(result, "probe");
+}
+
+#[test]
+fn keywords_still_bind_to_declared_keyword_parameters_test() {
+    let code = r#"
+def sized(width: 1, height: 2)
+  width * height
+end
+
+sized(width: 5, height: 6).to_s
+    "#;
+    let result = run("keywords_still_bind_to_declared_keyword_parameters", code);
+
+    // Assert
+    assert_eq!(result, "30");
+}
+
+#[test]
+fn a_bare_hash_argument_keeps_its_string_keys_test() {
+    // `m("a" => 1)` is a Hash argument, not a keyword call. The compiler
+    // emits it through the same keyword pairs either way, so the callee has
+    // to be handed back what was written.
+    let code = "
+    def take(h)
+      # sorted: this VM's Hash does not keep insertion order
+      h.keys.sort.join(',')
+    end
+
+    take('attributes' => 1, 'endpoints' => 2)
+    ";
+    let result = run("a_bare_hash_argument_keeps_its_string_keys", code);
+
+    // Assert
+    assert_eq!(&result, "attributes,endpoints");
+}
+
+#[test]
+fn a_declared_keyword_is_not_also_in_the_kwrest_test() {
+    let code = "
+    def f(attributes:, **rest)
+      \"#{attributes}/#{rest.keys.join(',')}\"
+    end
+
+    f(attributes: 1, z: 2)
+    ";
+    let result = run("a_declared_keyword_is_not_also_in_the_kwrest", code);
+
+    // Assert
+    assert_eq!(&result, "1/z");
+}
+
+#[test]
+fn kwrest_sits_past_the_optional_parameters_test() {
+    let code = "
+    def f(a, b = 9, **rest)
+      \"#{a}/#{b}/#{rest.keys.join(',')}\"
+    end
+
+    f(1, x: 2)
+    ";
+    let result = run("kwrest_sits_past_the_optional_parameters", code);
+
+    // Assert
+    assert_eq!(&result, "1/9/x");
+}
+
+#[test]
+fn a_block_reaches_a_method_declaring_several_keywords_test() {
+    // Keyword arguments take one register between the positional parameters
+    // and the block, not one per keyword.
+    let code = "
+    def start(c = nil, container: 'app', props: {}, hydrate: false, &blk)
+      return 'no block' unless blk
+      blk.call(container)
+    end
+
+    start(nil, container: 'root') { |v| \"got #{v}\" }
+    ";
+    let result = run("a_block_reaches_a_method_declaring_several_keywords", code);
+
+    // Assert
+    assert_eq!(&result, "got root");
+}
+
+#[test]
+fn keyword_arguments_reach_a_method_written_in_rust_test() {
+    // Hash#merge is a Rust method: it has no OP_ENTER to fold the pairs into
+    // a trailing Hash, so the send has to do it.
+    let code = "
+    { a: 1 }.merge(b: 2).keys.map { |k| k.to_s }.sort.join(',')
+    ";
+    let result = run("keyword_arguments_reach_a_method_written_in_rust", code);
+
+    // Assert
+    assert_eq!(&result, "a,b");
+}
+
+// Packed arguments: mruby's CALL_MAXARGS in OP_SEND's n and k nibbles.
+
+#[test]
+fn a_splatted_array_is_spread_over_the_parameters_test() {
+    let code = "
+    def f(a, b, c)
+      \"#{a}-#{b}-#{c}\"
+    end
+
+    args = [2, 3]
+    f(1, *args)
+    ";
+    let result = run("a_splatted_array_is_spread_over_the_parameters", code);
+
+    // Assert
+    assert_eq!(&result, "1-2-3");
+}
+
+#[test]
+fn a_double_splatted_hash_arrives_as_keywords_test() {
+    let code = "
+    def f(x:, y: 0)
+      \"#{x},#{y}\"
+    end
+
+    opts = { x: 1, y: 2 }
+    f(**opts)
+    ";
+    let result = run("a_double_splatted_hash_arrives_as_keywords", code);
+
+    // Assert
+    assert_eq!(&result, "1,2");
+}
+
+#[test]
+fn splats_and_a_block_can_all_appear_at_once_test() {
+    let code = "
+    def f(a, *rest, **kw, &blk)
+      \"#{a}/#{rest.join(',')}/#{kw.keys.join(',')}/#{blk.call}\"
+    end
+
+    args = [1, 2, 3]
+    opts = { x: 9 }
+    f(*args, **opts) { 'B' }
+    ";
+    let result = run("splats_and_a_block_can_all_appear_at_once", code);
+
+    // Assert
+    assert_eq!(&result, "1/2,3/x/B");
+}

@@ -17,6 +17,8 @@ pub const ENGINE: &str = "mruby/edge";
 
 const MAX_REGS_SIZE: usize = 256;
 
+pub type RawKargs = Vec<(Rc<RObject>, Rc<RObject>)>;
+
 #[derive(Debug, Clone)]
 pub enum TargetContext {
     Class(Rc<RClass>),
@@ -77,8 +79,16 @@ pub struct VM {
     pub regs: [Option<Rc<RObject>>; MAX_REGS_SIZE],
     pub current_regs_offset: usize,
     pub current_callinfo: Option<Rc<CALLINFO>>,
+    /// Argument count for a call entered through `mrb_funcall` or `mrb_call_block`, for OP_ENTER to read.
+    pub funcall_argc: Option<usize>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
     pub kargs: RefCell<Option<RHashMap<RSym, Rc<RObject>>>>,
+    /// The same pairs as `kargs`, with the key objects as the caller wrote them.
+    pub kargs_raw: RefCell<Option<RawKargs>>,
+    /// How many registers the call site spent on keyword arguments: two per
+    /// pair, or one when the caller passed `**hash`. OP_ENTER needs it to find
+    /// the block register, which sits just past them.
+    pub kargs_slots: Cell<usize>,
     pub current_kargs: RefCell<Option<Rc<KArgs>>>,
     pub target_class: TargetContext,
     pub exception: Option<Rc<RException>>,
@@ -261,6 +271,8 @@ impl VM {
             return_reg: None,
         }));
         let kargs = RefCell::new(None);
+        let kargs_raw = RefCell::new(None);
+        let kargs_slots = Cell::new(0);
         let current_kargs = RefCell::new(None);
         let target_class = TargetContext::Class(object_class.clone());
         let exception = None;
@@ -293,8 +305,11 @@ impl VM {
             regs,
             current_regs_offset,
             current_callinfo,
+            funcall_argc: None,
             current_breadcrumb,
             kargs,
+            kargs_raw,
+            kargs_slots,
             current_kargs,
             target_class,
             exception,

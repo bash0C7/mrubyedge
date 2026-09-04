@@ -270,6 +270,18 @@ impl RObject {
         }
     }
 
+    /// Returns the interned RObject wrapper for this module, the way `RObject::class` interns classes.
+    pub fn module_of(m: Rc<RModule>, vm: &mut VM) -> Rc<Self> {
+        match vm.class_object_table.get(&m.full_name()) {
+            Some(robj) => robj.clone(),
+            None => {
+                let robj = Self::module(m.clone()).to_refcount_assigned();
+                vm.class_object_table.insert(m.full_name(), robj.clone());
+                robj
+            }
+        }
+    }
+
     pub fn class_or_module(c: Rc<RModule>, vm: &mut VM) -> Rc<Self> {
         match c.as_ref().underlying.borrow().as_ref() {
             Some(weak_class) => {
@@ -279,7 +291,7 @@ impl RObject {
                     panic!("[BUG] Class weak reference is dead");
                 }
             }
-            None => Rc::new(RObject::module(c.clone())),
+            None => RObject::module_of(c.clone(), vm),
         }
     }
 
@@ -469,6 +481,25 @@ impl RObject {
 
         let class = match &self.value {
             RValue::Class(c) => c.clone(),
+            // A module's singleton class holds its `def self.foo` methods, inheriting from Module.
+            RValue::Module(m) => {
+                if let Some(sclass) = m.singleton_class.borrow().as_ref() {
+                    self.singleton_class.replace(Some(sclass.clone()));
+                    return sclass.clone();
+                }
+                let singleton_name = format!("#<Class:{}>", m.full_name());
+                let super_class = vm.get_class_by_name("Module");
+                let parent_module = m.parent.borrow().clone();
+                let sclass = Rc::new(RClass::new_singleton(
+                    &singleton_name,
+                    Some(super_class),
+                    parent_module,
+                ));
+                sclass.update_module_weakref();
+                m.singleton_class.replace(Some(sclass.clone()));
+                self.singleton_class.replace(Some(sclass.clone()));
+                return sclass;
+            }
             _ => panic!("Not called on a class"),
         };
         let class_name = format!("#<Class:{}>", class.full_name());
@@ -498,6 +529,12 @@ impl RObject {
 
     pub fn singleton_or_this_class(self: &Rc<Self>, vm: &mut VM) -> Rc<RClass> {
         if let Some(sclass) = self.singleton_class.borrow().as_ref() {
+            return sclass.clone();
+        }
+        // Module objects are not canonicalized, so the singleton lives on the module itself.
+        if let RValue::Module(m) = &self.value
+            && let Some(sclass) = m.singleton_class.borrow().as_ref()
+        {
             return sclass.clone();
         }
         self.get_class(vm)
@@ -886,6 +923,8 @@ pub struct RModule {
     pub consts: RefCell<RHashMap<String, Rc<RObject>>>,
     pub mixed_in_modules: RefCell<Vec<Rc<RModule>>>,
     pub parent: RefCell<Option<Rc<RModule>>>,
+    /// Singleton class holding the module's `def self.foo` methods.
+    pub singleton_class: RefCell<Option<Rc<RClass>>>,
 
     pub underlying: RefCell<Option<Weak<RClass>>>,
 }
@@ -899,6 +938,7 @@ impl RModule {
             consts: RefCell::new(RHashMap::default()),
             mixed_in_modules: RefCell::new(Vec::new()),
             parent: RefCell::new(None),
+            singleton_class: RefCell::new(None),
             underlying: RefCell::new(None),
         }
     }

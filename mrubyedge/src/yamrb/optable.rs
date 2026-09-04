@@ -125,6 +125,23 @@ use super::{
 // OPCODE(EXT2,       Z)        /* make 2nd operand (b) 16bit */
 // OPCODE(EXT3,       Z)        /* make 1st and 2nd operands 16bit */
 // OPCODE(STOP,       Z)        /* stop VM */
+// OpCodes added or changed in mruby 4.0 (RITE0400):
+// OPCODE(LOADTRUE,   B)        /* R[a] = true (LOADT in 3.x) */
+// OPCODE(LOADFALSE,  B)        /* R[a] = false (LOADF in 3.x) */
+// OPCODE(GETIDX0,    BB)       /* R[a] = R[b][0]; a+1 for method call */
+// OPCODE(MATCHERR,   B)        /* raise NoMatchingPatternError unless R[a] */
+// OPCODE(SSEND0,     BB)       /* R[a] = self.send(Syms[b]) (no args) */
+// OPCODE(SEND0,      BB)       /* R[a] = R[a].send(Syms[b]) (no args) */
+// OPCODE(BLKCALL,    BB)       /* R[a] = R[a].call(R[a+1],... ,R[a+b]); direct block call */
+// OPCODE(ENTER,      W)        /* arg setup according to flags (24=n1:m5:o5:r1:m5:k5:d1:b1) */
+// OPCODE(RETSELF,    Z)        /* return self */
+// OPCODE(RETNIL,     Z)        /* return nil */
+// OPCODE(RETTRUE,    Z)        /* return true */
+// OPCODE(RETFALSE,   Z)        /* return false */
+// OPCODE(ADDILV,     BBB)      /* R[a] = R[a]+mrb_int(c); R[b],R[b+1] for method call */
+// OPCODE(SUBILV,     BBB)      /* R[a] = R[a]-mrb_int(c); R[b],R[b+1] for method call */
+// OPCODE(TDEF,       BBB)      /* target_class.newmethod(Syms[b],Irep[c]); R[a] = Syms[b] */
+// OPCODE(SDEF,       BBB)      /* R[a].singleton_class.newmethod(Syms[b],Irep[c]); R[a] = Syms[b] */
 // functions that represent each opcode are defined in this file.
 // to understand the meaning of each operand mark, see enum Fetched in rite/insn.rs:
 // pub enum Fetched {

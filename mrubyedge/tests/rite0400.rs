@@ -96,3 +96,16 @@ fn the_two_numberings_diverge_where_4_0_inserted_an_opcode_test() {
     assert!(RiteVersion::V4.decode(118).is_ok());
     assert!(RiteVersion::V4.decode(119).is_err());
 }
+
+#[test]
+fn mruby_40_bytecode_runs_test() {
+    let mut rite = mrubyedge::rite::load(MRUBY40).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+
+    // Assert
+    // counter.value | locals | first_of | through_block | bare | empty.nil? |
+    // yes | no, see tests/fixtures/mruby40.rb
+    assert_eq!(result, "12,5-1-3,1,6,7,1,1,1");
+}

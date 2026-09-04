@@ -86,6 +86,10 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
         return Err(Error::TooShort);
     }
     let binary_header = RiteBinaryHeader::from_bytes(&head[0..binheader_size])?;
+    // mruby 3.x (RITE0300) and 4.0 (RITE0400) share the container but not
+    // the opcode table; anything else would be misread, so refuse it here.
+    super::insn::RiteVersion::from_major(&binary_header.major_version)
+        .map_err(|_| Error::UnsupportedVersion(binary_header.major_version))?;
     rite.binary_header = binary_header;
     size -= binheader_size;
     head = &head[binheader_size..];

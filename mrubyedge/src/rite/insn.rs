@@ -309,11 +309,80 @@ pub enum OpCode {
     EXT3,
     STOP,
 
+    // mruby 4.0 (RITE0400) added these. They keep numbers of their own here,
+    // after every 3.3 opcode, so the 3.3 table stays exactly as it was; the
+    // loader maps a 4.0 byte onto this enum through ENUM_TABLE_V4.
+    GETIDX0,
+    MATCHERR,
+    SSEND0,
+    SEND0,
+    BLKCALL,
+    RETSELF,
+    RETNIL,
+    RETTRUE,
+    RETFALSE,
+    ADDILV,
+    SUBILV,
+    TDEF,
+    SDEF,
+
     NumberOfOpcode, // for fetcher table
 }
 
+// Which mruby the bytecode was compiled by. The opcode table differs
+// (13 added, 3 renamed, everything from index 36 renumbered).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RiteVersion {
+    // RITE0300, mruby 3.x
+    V3,
+    // RITE0400, mruby 4.0, emitted by PicoRuby's mrbc
+    V4,
+}
+
+impl RiteVersion {
+    pub fn from_major(major: &[u8; 2]) -> Result<Self, Error> {
+        match major {
+            b"03" => Ok(RiteVersion::V3),
+            b"04" => Ok(RiteVersion::V4),
+            _ => Err(Error::Internal(format!(
+                "unsupported RITE binary format version {:?}",
+                core::str::from_utf8(major).unwrap_or("??")
+            ))),
+        }
+    }
+
+    fn opcodes(&self) -> &'static [OpCode] {
+        match self {
+            RiteVersion::V3 => &ENUM_TABLE_V3,
+            RiteVersion::V4 => &ENUM_TABLE_V4,
+        }
+    }
+
+    fn fetchers(&self) -> &'static [FetchFn] {
+        match self {
+            RiteVersion::V3 => &FETCH_TABLE_V3,
+            RiteVersion::V4 => &FETCH_TABLE_V4,
+        }
+    }
+
+    // The opcode a byte names in this version, and how to read its operands.
+    pub fn decode(&self, byte: u8) -> Result<(OpCode, FetchFn), Error> {
+        let index = byte as usize;
+        let opcodes = self.opcodes();
+        if index >= opcodes.len() {
+            return Err(Error::InvalidOpCode);
+        }
+        Ok((opcodes[index], self.fetchers()[index]))
+    }
+}
+
 use self::OpCode::*;
-const ENUM_TABLE: [OpCode; OpCode::NumberOfOpcode as usize] = [
+
+// How many opcodes each mruby numbers. The internal enum holds the union.
+const OPCODE_COUNT_V3: usize = 106;
+const OPCODE_COUNT_V4: usize = 119;
+
+const ENUM_TABLE_V3: [OpCode; OPCODE_COUNT_V3] = [
     NOP, MOVE, LOADL, LOADI, LOADINEG, LOADI__1, LOADI_0, LOADI_1, LOADI_2, LOADI_3, LOADI_4,
     LOADI_5, LOADI_6, LOADI_7, LOADI16, LOADI32, LOADSYM, LOADNIL, LOADSELF, LOADT, LOADF, GETGV,
     SETGV, GETSV, SETSV, GETIV, SETIV, GETCV, SETCV, GETCONST, SETCONST, GETMCNST, SETMCNST,
@@ -325,14 +394,28 @@ const ENUM_TABLE: [OpCode; OpCode::NumberOfOpcode as usize] = [
     UNDEF, SCLASS, TCLASS, DEBUG, ERR, EXT1, EXT2, EXT3, STOP,
 ];
 
+// mruby 4.0's numbering. LOADI8/LOADTRUE/LOADFALSE are 3.3's LOADI/LOADT/
+// LOADF renamed, so they map onto the same variants.
+#[rustfmt::skip]
+const ENUM_TABLE_V4: [OpCode; OPCODE_COUNT_V4] = [
+    NOP, MOVE, LOADL, LOADI, LOADINEG, LOADI__1, LOADI_0, LOADI_1, LOADI_2, LOADI_3, LOADI_4,
+    LOADI_5, LOADI_6, LOADI_7, LOADI16, LOADI32, LOADSYM, LOADNIL, LOADSELF, LOADT, LOADF,
+    GETGV, SETGV, GETSV, SETSV, GETIV, SETIV, GETCV, SETCV, GETCONST, SETCONST, GETMCNST,
+    SETMCNST, GETUPVAR, SETUPVAR, GETIDX, GETIDX0, SETIDX, JMP, JMPIF, JMPNOT, JMPNIL, JMPUW,
+    EXCEPT, RESCUE, RAISEIF, MATCHERR, SSEND, SSEND0, SSENDB, SEND, SEND0, SENDB, CALL, BLKCALL,
+    SUPER, ARGARY, ENTER, KEY_P, KEYEND, KARG, RETURN, RETURN_BLK, RETSELF, RETNIL, RETTRUE,
+    RETFALSE, BREAK, BLKPUSH, ADD, ADDI, SUB, SUBI, ADDILV, SUBILV, MUL, DIV, EQ, LT, LE, GT,
+    GE, ARRAY, ARRAY2, ARYCAT, ARYPUSH, ARYSPLAT, AREF, ASET, APOST, INTERN, SYMBOL, STRING,
+    STRCAT, HASH, HASHADD, HASHCAT, LAMBDA, BLOCK, METHOD, RANGE_INC, RANGE_EXC, OCLASS, CLASS,
+    MODULE, EXEC, DEF, TDEF, SDEF, ALIAS, UNDEF, SCLASS, TCLASS, DEBUG, ERR, EXT1, EXT2, EXT3,
+    STOP,
+];
+
 impl TryFrom<u8> for OpCode {
     type Error = Error;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0..=105 => Ok(ENUM_TABLE[value as usize]),
-            _ => Err(Error::InvalidOpCode),
-        }
+        RiteVersion::V3.decode(value).map(|(opcode, _)| opcode)
     }
 }
 
@@ -445,6 +528,19 @@ impl Debug for OpCode {
             Self::EXT2 => write!(f, "EXT2"),
             Self::EXT3 => write!(f, "EXT3"),
             Self::STOP => write!(f, "STOP"),
+            Self::GETIDX0 => write!(f, "GETIDX0"),
+            Self::MATCHERR => write!(f, "MATCHERR"),
+            Self::SSEND0 => write!(f, "SSEND0"),
+            Self::SEND0 => write!(f, "SEND0"),
+            Self::BLKCALL => write!(f, "BLKCALL"),
+            Self::RETSELF => write!(f, "RETSELF"),
+            Self::RETNIL => write!(f, "RETNIL"),
+            Self::RETTRUE => write!(f, "RETTRUE"),
+            Self::RETFALSE => write!(f, "RETFALSE"),
+            Self::ADDILV => write!(f, "ADDILV"),
+            Self::SUBILV => write!(f, "SUBILV"),
+            Self::TDEF => write!(f, "TDEF"),
+            Self::SDEF => write!(f, "SDEF"),
             Self::NumberOfOpcode => write!(f, "[BUG] overflow opcode"),
         }
     }
@@ -545,10 +641,20 @@ const W: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_w;
 
 type FetchFn = fn(&mut &[u8]) -> Result<Fetched, Error>;
 
-pub const FETCH_TABLE: [FetchFn; OpCode::NumberOfOpcode as usize] = [
+#[rustfmt::skip]
+const FETCH_TABLE_V3: [FetchFn; OPCODE_COUNT_V3] = [
     Z, BB, BB, BB, BB, B, B, B, B, B, B, B, B, B, BS, BSS, BB, B, B, B, B, BB, BB, BB, BB, BB, BB,
     BB, BB, BB, BB, BB, BB, BBB, BBB, B, B, S, BS, BS, BS, S, B, BB, B, BBB, BBB, BBB, BBB, Z, BB,
     BS, W, BB, Z, BB, B, B, B, BS, B, BB, B, BB, B, B, B, B, B, B, B, BB, BBB, B, BB, B, BBB, BBB,
     BBB, B, BB, BB, B, BB, BB, B, BB, BB, BB, B, B, B, BB, BB, BB, BB, BB, B, B, B, BBB, B, Z, Z,
     Z, Z,
+];
+
+#[rustfmt::skip]
+const FETCH_TABLE_V4: [FetchFn; OPCODE_COUNT_V4] = [
+    Z, BB, BB, BB, BB, B, B, B, B, B, B, B, B, B, BS, BSS, BB, B, B, B, B, BB, BB, BB, BB, BB,
+    BB, BB, BB, BB, BB, BB, BB, BBB, BBB, B, BB, B, S, BS, BS, BS, S, B, BB, B, B, BBB, BB, BBB,
+    BBB, BB, BBB, Z, BB, BB, BS, W, BB, Z, BB, B, B, Z, Z, Z, Z, B, BS, B, BB, B, BB, BBB, BBB,
+    B, B, B, B, B, B, B, BB, BBB, B, BB, B, BBB, BBB, BBB, B, BB, BB, B, BB, BB, B, BB, BB, BB,
+    B, B, B, BB, BB, BB, BB, BBB, BBB, BB, B, B, B, BBB, B, Z, Z, Z, Z,
 ];

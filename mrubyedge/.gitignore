@@ -1,2 +1,5 @@
 /target
 *.mrb
+# ...except the checked-in bytecode fixtures, which cannot be rebuilt by
+# this harness (see tests/rite0400.rs).
+!tests/fixtures/*.mrb

@@ -789,20 +789,20 @@ impl VM {
     }
 }
 
-fn interpret_insn(mut insns: &[u8]) -> Vec<Op> {
+fn interpret_insn(mut insns: &[u8], version: insn::RiteVersion) -> Vec<Op> {
     let mut pos: usize = 0;
     let mut ops = Vec::new();
     while !insns.is_empty() {
-        let op = insns[0];
-        let opcode: insn::OpCode = op.try_into().unwrap();
-        let fetched = insn::FETCH_TABLE[op as usize](&mut insns).unwrap();
+        let byte = insns[0];
+        let (opcode, fetch) = version.decode(byte).unwrap();
+        let fetched = fetch(&mut insns).unwrap();
         ops.push(Op::new(opcode, fetched, pos, 1 + fetched.len()));
         pos += 1 + fetched.len();
     }
     ops
 }
 
-fn load_irep_1(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
+fn load_irep_1(reps: &mut [Irep], pos: usize, version: insn::RiteVersion) -> (IREP, usize) {
     let irep = &mut reps[pos];
     let mut irep1 = IREP {
         __id: pos,
@@ -841,7 +841,7 @@ fn load_irep_1(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
             }
         }
     }
-    let code = interpret_insn(irep.insn);
+    let code = interpret_insn(irep.insn, version);
     for ch in irep.catch_handlers.iter() {
         let pos = ch.target;
         let (i, _) = code
@@ -867,11 +867,11 @@ fn load_irep_1(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
     (irep1, pos + 1)
 }
 
-fn load_irep_0(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
-    let (mut irep0, newpos) = load_irep_1(reps, pos);
+fn load_irep_0(reps: &mut [Irep], pos: usize, version: insn::RiteVersion) -> (IREP, usize) {
+    let (mut irep0, newpos) = load_irep_1(reps, pos, version);
     let mut pos = newpos;
     for _ in 0..irep0.rlen {
-        let (rep, newpos) = load_irep_0(reps, pos);
+        let (rep, newpos) = load_irep_0(reps, pos, version);
         pos = newpos;
         irep0.reps.push(Rc::new(rep));
     }
@@ -880,7 +880,12 @@ fn load_irep_0(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
 
 // This will consume the Rite object and return the IREP
 fn rite_to_irep(rite: &mut Rite) -> IREP {
-    let (irep0, _) = load_irep_0(&mut rite.irep, 0);
+    // The opcode numbering depends on which mruby compiled this; the header
+    // says which. rite::load has already refused any version but 3.x and
+    // 4.0, so a Rite that did not come through it reads as 3.x.
+    let version = insn::RiteVersion::from_major(&rite.binary_header.major_version)
+        .unwrap_or(insn::RiteVersion::V3);
+    let (irep0, _) = load_irep_0(&mut rite.irep, 0, version);
     irep0
 }
 

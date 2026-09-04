@@ -214,6 +214,44 @@ fn array_or_test() {
 }
 
 #[test]
+fn array_minus_no_common_elements_test() {
+    let code = r#"
+    def test_array_minus_no_common
+      [1, 2, 3] - [4, 5]
+    end
+    "#;
+    let binary = mrbc_compile("array_minus_no_common", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let args = vec![];
+    let result = mrb_funcall(&mut vm, None, "test_array_minus_no_common", &args).unwrap();
+    let arr = result.as_vec_owned().unwrap();
+    let vals: Vec<i64> = arr.iter().map(|r| r.as_ref().try_into().unwrap()).collect();
+    assert_eq!(vals, vec![1, 2, 3]);
+}
+
+#[test]
+fn array_minus_removes_every_duplicate_occurrence_test() {
+    let code = r#"
+    def test_array_minus_duplicates
+      [1, 2, 2, 3, 2] - [2]
+    end
+    "#;
+    let binary = mrbc_compile("array_minus_duplicates", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let args = vec![];
+    let result = mrb_funcall(&mut vm, None, "test_array_minus_duplicates", &args).unwrap();
+    let arr = result.as_vec_owned().unwrap();
+    let vals: Vec<i64> = arr.iter().map(|r| r.as_ref().try_into().unwrap()).collect();
+    assert_eq!(vals, vec![1, 3]);
+}
+
+#[test]
 fn array_first_test() {
     let code = r#"
     def test_array_first
@@ -602,4 +640,15 @@ fn array_flatten_self_returns_self_if_changed_test() {
 
     assert_eq!(result_vals, vec![1, 2, 3]);
     assert_eq!(a_vals, vec![1, 2, 3]);
+}
+
+#[test]
+fn array_difference_test() {
+    let code = "
+    def test_main
+      ([1, 2, 3, 4] - [2, 4]).join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("array_difference", code), "1,3");
 }

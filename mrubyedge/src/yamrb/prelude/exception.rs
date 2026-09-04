@@ -16,6 +16,10 @@ pub(crate) fn initialize_exception(vm: &mut VM) {
     let _ = vm.define_standard_class_with_superclass("TypeError", std_exp_class.clone());
     let _ = vm.define_standard_class_with_superclass("ArgumentError", std_exp_class.clone());
     let _ = vm.define_standard_class_with_superclass("RangeError", std_exp_class.clone());
+    let index_error = vm.define_standard_class_with_superclass("IndexError", std_exp_class.clone());
+    let _ = vm.define_standard_class_with_superclass("KeyError", index_error.clone());
+    let _ = vm.define_standard_class_with_superclass("StopIteration", index_error);
+    let _ = vm.define_standard_class_with_superclass("FrozenError", std_exp_class.clone());
     let _ =
         vm.define_standard_class_with_superclass("NoMatchingPatternError", std_exp_class.clone());
     let _ = vm.define_standard_class_with_superclass("ZeroDivisionError", std_exp_class.clone());
@@ -37,7 +41,25 @@ pub(crate) fn initialize_exception(vm: &mut VM) {
     let _ = vm.define_standard_class("_Break");
     let _ = vm.define_standard_class("_BlockReturn");
 
-    mrb_define_cmethod(vm, exp_class, "message", Box::new(mrb_exception_message));
+    mrb_define_cmethod(
+        vm,
+        exp_class.clone(),
+        "message",
+        Box::new(mrb_exception_message),
+    );
+    mrb_define_cmethod(
+        vm,
+        exp_class,
+        "backtrace",
+        Box::new(mrb_exception_backtrace),
+    );
+}
+
+// Exception#backtrace: the VM keeps no call stack to report, so the answer
+// is always empty. A program reaches for it exactly when reporting an
+// error, and a NoMethodError there buries the error it was about to print.
+pub fn mrb_exception_backtrace(_vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    Ok(RObject::array(vec![]).to_refcount_assigned())
 }
 
 pub fn mrb_exception_message(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

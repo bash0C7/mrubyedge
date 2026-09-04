@@ -3,7 +3,10 @@ use std::rc::Rc;
 use crate::{
     Error,
     yamrb::{
-        helpers::{mrb_call_block, mrb_call_inspect, mrb_define_class_cmethod, mrb_define_cmethod},
+        helpers::{
+            mrb_call_block, mrb_call_inspect, mrb_define_class_cmethod, mrb_define_cmethod,
+            mrb_funcall,
+        },
         prelude::module::mrb_include_module,
         value::{RHashMap, RObject, RValue},
         vm::VM,
@@ -42,6 +45,21 @@ pub(crate) fn initialize_hash(vm: &mut VM) {
         "has_key?",
         Box::new(mrb_hash_has_key),
     );
+    mrb_define_cmethod(vm, hash_class.clone(), "key?", Box::new(mrb_hash_has_key));
+    mrb_define_cmethod(
+        vm,
+        hash_class.clone(),
+        "member?",
+        Box::new(mrb_hash_has_key),
+    );
+    mrb_define_cmethod(
+        vm,
+        hash_class.clone(),
+        "include?",
+        Box::new(mrb_hash_has_key),
+    );
+    mrb_define_cmethod(vm, hash_class.clone(), "fetch", Box::new(mrb_hash_fetch));
+    mrb_define_cmethod(vm, hash_class.clone(), "dig", Box::new(mrb_hash_dig));
     mrb_define_cmethod(
         vm,
         hash_class.clone(),
@@ -51,6 +69,19 @@ pub(crate) fn initialize_hash(vm: &mut VM) {
     mrb_define_cmethod(vm, hash_class.clone(), "key", Box::new(mrb_hash_key));
     mrb_define_cmethod(vm, hash_class.clone(), "keys", Box::new(mrb_hash_keys));
     mrb_define_cmethod(vm, hash_class.clone(), "each", Box::new(mrb_hash_each));
+    mrb_define_cmethod(vm, hash_class.clone(), "each_pair", Box::new(mrb_hash_each));
+    mrb_define_cmethod(
+        vm,
+        hash_class.clone(),
+        "each_key",
+        Box::new(mrb_hash_each_key),
+    );
+    mrb_define_cmethod(
+        vm,
+        hash_class.clone(),
+        "each_value",
+        Box::new(mrb_hash_each_value),
+    );
     mrb_define_cmethod(vm, hash_class.clone(), "size", Box::new(mrb_hash_size));
     mrb_define_cmethod(vm, hash_class.clone(), "length", Box::new(mrb_hash_size));
     mrb_define_cmethod(vm, hash_class.clone(), "count", Box::new(mrb_hash_size));
@@ -173,6 +204,44 @@ fn mrb_hash_each(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error
             ));
         }
     };
+    Ok(this.clone())
+}
+
+/// Hash#each_key { |key| ... }
+fn mrb_hash_each_key(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    mrb_hash_each_half(vm, args, true)
+}
+
+/// Hash#each_value { |value| ... }
+fn mrb_hash_each_value(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    mrb_hash_each_half(vm, args, false)
+}
+
+fn mrb_hash_each_half(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+    want_key: bool,
+) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let block = args
+        .first()
+        .ok_or_else(|| Error::RuntimeError("Hash#each_key expects a block".to_string()))?;
+    let pairs: Vec<(Rc<RObject>, Rc<RObject>)> = match &this.value {
+        RValue::Hash(hash) => hash
+            .borrow()
+            .iter()
+            .map(|(_, (k, v))| (k.clone(), v.clone()))
+            .collect(),
+        _ => {
+            return Err(Error::RuntimeError(
+                "Hash#each_key must be called on a hash".to_string(),
+            ));
+        }
+    };
+    for (key, value) in pairs.into_iter() {
+        let arg = if want_key { key } else { value };
+        mrb_call_block(vm, block.clone(), None, &[arg], 0)?;
+    }
     Ok(this.clone())
 }
 
@@ -318,6 +387,65 @@ fn mrb_hash_has_key(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Er
         }
     };
     Ok(Rc::new(RObject::boolean(hash.borrow().contains_key(&key))))
+}
+
+/// Hash#fetch(key[, default]) -- raises KeyError when the key is absent and
+/// no default was given, so a typo does not silently read as nil.
+fn mrb_hash_fetch(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let key = args
+        .first()
+        .ok_or_else(|| Error::ArgumentError("Hash#fetch expects a key".to_string()))?;
+    let hash = match &this.value {
+        RValue::Hash(h) => h,
+        _ => {
+            return Err(Error::RuntimeError(
+                "Hash#fetch must be called on a hash".to_string(),
+            ));
+        }
+    };
+    let found = hash
+        .borrow()
+        .get(&key.as_hash_key()?)
+        .map(|(_, v)| v.clone());
+    match found {
+        Some(value) => Ok(value),
+        None => match args.get(1) {
+            Some(default) if !matches!(default.value, RValue::Proc(_)) => Ok(default.clone()),
+            Some(block) => mrb_call_block(vm, block.clone(), None, std::slice::from_ref(key), 0),
+            None => {
+                let shown = mrb_call_inspect(vm, key.clone())
+                    .and_then(|s| s.as_ref().try_into())
+                    .unwrap_or_else(|_| "?".to_string());
+                Err(Error::TaggedError(
+                    "KeyError",
+                    format!("key not found: {}", shown),
+                ))
+            }
+        },
+    }
+}
+
+/// Hash#dig(key, ...) -- walks nested hashes, stopping at the first nil.
+fn mrb_hash_dig(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let mut current = vm.getself()?;
+    for key in args.iter() {
+        if matches!(key.value, RValue::Proc(_)) {
+            break;
+        }
+        let next = match &current.value {
+            RValue::Hash(h) => h.borrow().get(&key.as_hash_key()?).map(|(_, v)| v.clone()),
+            RValue::Nil => None,
+            _ => {
+                return mrb_funcall(vm, Some(current.clone()), "dig", std::slice::from_ref(key));
+            }
+        };
+        match next {
+            Some(value) => current = value,
+            None => return Ok(Rc::new(RObject::nil())),
+        }
+    }
+    Ok(current)
 }
 
 // Hash#has_value?: Returns true if the given value is present for some key in the hash

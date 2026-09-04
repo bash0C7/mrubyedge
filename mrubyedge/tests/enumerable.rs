@@ -432,3 +432,43 @@ fn enumerable_sum_empty_with_init_test() {
     let result: String = result.as_ref().try_into().unwrap();
     assert_eq!(result, "abcd");
 }
+
+#[test]
+fn reject_keeps_what_the_block_turns_down() {
+    let code = "
+    [1, 2, 3, 4].reject { |x| x > 2 }.join(',')
+    ";
+    let binary = mrbc_compile("enumerable_reject", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "1,2");
+}
+
+#[test]
+fn reject_on_the_split_of_a_path() {
+    // The shape Funicular's router uses.
+    let code = "
+    '/posts/one/'.split('/').reject { |s| s.empty? }.join('|')
+    ";
+    let binary = mrbc_compile("enumerable_reject_split", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "posts|one");
+}
+
+#[test]
+fn filter_is_select() {
+    let code = "
+    [1, 2, 3, 4].filter { |x| x > 2 }.join(',')
+    ";
+    let binary = mrbc_compile("enumerable_filter", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "3,4");
+}

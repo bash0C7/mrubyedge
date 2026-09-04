@@ -317,3 +317,26 @@ fn no_matching_pattern_error_is_a_standard_error_test() {
     // Assert
     assert!(run_b("no_matching_pattern_error", code));
 }
+
+#[test]
+fn an_exception_can_be_asked_for_a_backtrace_test() {
+    // Characterization: the VM keeps no call stack, so the backtrace is
+    // empty. It exists because reporting an error is exactly when a program
+    // reaches for it, and a NoMethodError there buries the error being
+    // reported.
+    let code = "
+    begin
+      raise 'boom'
+    rescue => e
+      \"#{e.message}/#{e.backtrace.size}\"
+    end
+    ";
+    let binary = mrbc_compile("an_exception_can_be_asked_for_a_backtrace", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "boom/0");
+}

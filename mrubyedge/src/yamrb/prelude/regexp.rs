@@ -81,7 +81,7 @@ pub struct RMatchData {
     haystack: String,
 }
 
-fn get_regexp_from_object(obj: &Rc<RObject>) -> Result<Regex, Error> {
+pub(crate) fn get_regexp_from_object(obj: &Rc<RObject>) -> Result<Regex, Error> {
     let pattern_str: String = match &obj.value {
         RValue::Data(data) => {
             let borrow = data.data.borrow();

@@ -687,3 +687,231 @@ fn string_size_test() {
     let result: i64 = result.as_ref().try_into().unwrap();
     assert_eq!(result, 5);
 }
+
+#[test]
+fn string_gsub_test() {
+    let code = r#"
+    def test_gsub
+      "banana".gsub("an", "-")
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_gsub", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "b--a");
+}
+
+#[test]
+fn string_gsub_escape_html_test() {
+    let code = r#"
+    def test_escape
+      "x&y<z>".gsub("&", "&amp;").gsub("<", "&lt;").gsub(">", "&gt;")
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_escape", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_escape", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "x&amp;y&lt;z&gt;");
+}
+
+#[test]
+fn string_gsub_empty_pattern_test() {
+    let code = r#"
+    def test_gsub_empty
+      "abc".gsub("", "-")
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_empty", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_gsub_empty", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "-a-b-c-");
+}
+
+#[test]
+fn string_gsub_backreference_test() {
+    let code = r#"
+    def test_gsub_backref
+      "aaa".gsub("a", '\0\0')
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_backref", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_gsub_backref", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "aaaaaa");
+}
+
+#[test]
+fn string_gsub_block_test() {
+    let code = r#"
+    def test_gsub_block
+      "hello".gsub("l") { |m| m.upcase }
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_block", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_gsub_block", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "heLLo");
+}
+
+#[test]
+fn string_sub_replaces_only_the_first_test() {
+    let code = r#"
+    def test_sub
+      "banana".sub("an", "-")
+    end
+    "#;
+    let binary = mrbc_compile("string_sub", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_sub", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "b-ana");
+}
+
+#[test]
+fn string_gsub_self_test() {
+    let code = r#"
+    def test_gsub_self
+      s = "aaa"
+      s.gsub!("a", "b")
+      s
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_self", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_gsub_self", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "bbb");
+}
+
+#[test]
+fn string_sub_self_returns_nil_without_a_match_test() {
+    let code = r#"
+    def test_sub_self_nil
+      "nope".sub!("z", "!").nil?
+    end
+    "#;
+    let binary = mrbc_compile("string_sub_self_nil", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_sub_self_nil", &[]).unwrap();
+    assert!(matches!(
+        result.value,
+        mrubyedge::yamrb::value::RValue::Bool(true)
+    ));
+}
+
+#[test]
+fn string_slice_with_range_test() {
+    let code = r#"
+    def test_slice_range
+      s = "abcdef"
+      [s[1..-1], s[0..1], s[0...2], s[6..-1], s[7..-1].nil?, s[1..], s[..1], s[-2..-1]]
+    end
+    "#;
+    let binary = mrbc_compile("string_slice_range", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_slice_range", &[]).unwrap();
+    let items = match &result.value {
+        mrubyedge::yamrb::value::RValue::Array(a) => a.borrow().clone(),
+        _ => panic!("not an array"),
+    };
+    let text = |i: usize| -> String { items[i].as_ref().try_into().unwrap() };
+    assert_eq!(text(0), "bcdef");
+    assert_eq!(text(1), "ab");
+    assert_eq!(text(2), "ab");
+    assert_eq!(text(3), "");
+    assert!(matches!(
+        items[4].value,
+        mrubyedge::yamrb::value::RValue::Bool(true)
+    ));
+    assert_eq!(text(5), "bcdef");
+    assert_eq!(text(6), "ab");
+    assert_eq!(text(7), "ef");
+}
+
+#[test]
+fn string_slice_self_with_range_test() {
+    let code = r##"
+    def test_slice_self_range
+      s = "hello world"
+      removed = s.slice!(0..5)
+      "#{removed}|#{s}"
+    end
+    "##;
+    let binary = mrbc_compile("string_slice_self_range", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_slice_self_range", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "hello |world");
+}
+
+#[test]
+fn capitalize_test() {
+    let code = "
+    ['ruby', 'RUBY', 'rUbY', ''].map { |s| s.capitalize }.join(',')
+    ";
+    let binary = mrbc_compile("string_capitalize", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "Ruby,Ruby,Ruby,");
+}
+
+#[test]
+fn string_each_byte_test() {
+    let code = "
+    def test_main
+      total = 0
+      'abc'.each_byte { |b| total += b }
+      total
+    end
+    ";
+    assert_eq!(run_i("each_byte", code), 294);
+}
+
+#[test]
+fn string_each_char_test() {
+    let code = "
+    def test_main
+      out = ''
+      'abc'.each_char { |c| out = c + out }
+      out
+    end
+    ";
+    assert_eq!(run_s("each_char", code), "cba");
+}

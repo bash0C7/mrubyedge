@@ -146,3 +146,39 @@ fn regexp_no_match_test() {
         mrubyedge::yamrb::value::RValue::Nil
     ));
 }
+
+#[test]
+fn string_gsub_with_regexp_test() {
+    let code = r##"
+    def test_gsub_regexp
+      "a1b22c333".gsub(/[0-9]+/, "#")
+    end
+    "##;
+    let binary = mrbc_compile("string_gsub_with_regexp", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let result = mrb_funcall(&mut vm, None, "test_gsub_regexp", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "a#b#c#");
+}
+
+#[test]
+fn string_gsub_with_regexp_capture_test() {
+    let code = r#"
+    def test_gsub_regexp_capture
+      "john smith".gsub(/([a-z]+) ([a-z]+)/, '\2 \1')
+    end
+    "#;
+    let binary = mrbc_compile("string_gsub_with_regexp_capture", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let result = mrb_funcall(&mut vm, None, "test_gsub_regexp_capture", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "smith john");
+}

@@ -1617,10 +1617,11 @@ pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     // let no_return = vm.current_callinfo.is_some();
 
     let regs0_cloned: Vec<_> = vm.current_regs()[0..nregs].to_vec();
-    if let Some(environ) = vm.cur_env.get(&vm.current_irep.__id) {
+    let env_key = (vm.current_irep.__id, vm.current_regs_offset);
+    if let Some(environ) = vm.cur_env.remove(&env_key) {
         environ.capture_no_clone(regs0_cloned);
         environ.as_ref().expire();
-        vm.has_env_ref.remove(&vm.current_irep.__id);
+        vm.has_env_ref.remove(&env_key);
     }
 
     let regs0 = vm.current_regs();
@@ -2126,8 +2127,9 @@ pub(crate) fn op_lambda(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     //let nregs = vm.current_irep.nregs;
     //environ.capture(&vm.current_regs()[0..nregs]);
     let environ = Rc::new(environ);
-    vm.cur_env.insert(vm.current_irep.__id, environ.clone());
-    vm.has_env_ref.insert(vm.current_irep.__id, true);
+    let env_key = (vm.current_irep.__id, vm.current_regs_offset);
+    vm.cur_env.insert(env_key, environ.clone());
+    vm.has_env_ref.insert(env_key, true);
 
     let val = RObject {
         tt: RType::Proc,
@@ -2160,8 +2162,9 @@ pub(crate) fn op_block(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         captured: RefCell::new(None),
     };
     let environ = Rc::new(environ);
-    vm.cur_env.insert(vm.current_irep.__id, environ.clone());
-    vm.has_env_ref.insert(vm.current_irep.__id, true);
+    let env_key = (vm.current_irep.__id, vm.current_regs_offset);
+    vm.cur_env.insert(env_key, environ.clone());
+    vm.has_env_ref.insert(env_key, true);
 
     let val = RObject {
         tt: RType::Proc,

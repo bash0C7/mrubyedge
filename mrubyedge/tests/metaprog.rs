@@ -156,3 +156,85 @@ fn const_set_defines_a_new_constant_test() {
     ";
     assert_eq!(run_i("const_set", code), 6);
 }
+
+#[test]
+fn instance_variable_defined_after_it_is_set_test() {
+    let code = "
+    class Box
+      def initialize
+        @value = 7
+      end
+    end
+
+    def test_main
+      Box.new.instance_variable_defined?(:@value)
+    end
+    ";
+    assert!(run_b("instance_variable_defined", code));
+}
+
+#[test]
+fn instance_variables_lists_the_set_ivar_test() {
+    let code = "
+    class Box
+      def initialize
+        @value = 7
+      end
+    end
+
+    def test_main
+      Box.new.instance_variables.include?(:@value)
+    end
+    ";
+    assert!(run_b("instance_variables_include", code));
+}
+
+#[test]
+fn instance_variable_get_reads_the_value_test() {
+    let code = "
+    class Box
+      def initialize
+        @value = 7
+      end
+    end
+
+    def test_main
+      Box.new.instance_variable_get(:@value)
+    end
+    ";
+    assert_eq!(run_i("instance_variable_get", code), 7);
+}
+
+#[test]
+fn instance_variable_set_updates_the_value_test() {
+    let code = "
+    class Box
+      def initialize
+        @value = 7
+      end
+    end
+
+    def test_main
+      box = Box.new
+      box.instance_variable_set(:@value, box.instance_variable_get(:@value) + 1)
+      box.instance_variable_get(:@value)
+    end
+    ";
+    assert_eq!(run_i("instance_variable_set", code), 8);
+}
+
+#[test]
+fn send_test() {
+    let code = "
+    class Adder
+      def add(a, b)
+        a + b
+      end
+    end
+
+    def test_main
+      Adder.new.send(:add, 3, 4)
+    end
+    ";
+    assert_eq!(run_i("send", code), 7);
+}

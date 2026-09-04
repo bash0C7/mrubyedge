@@ -215,3 +215,74 @@ fn proc_call_method_test() {
         .unwrap();
     assert_eq!(result, 42);
 }
+
+#[test]
+fn proc_bracket_calls_the_proc_test() {
+    let code = r##"
+    def test_main
+      my_proc = Proc.new { |a, b| a + b }
+      "#{my_proc[10, 32]},#{my_proc.call(10, 32)}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("proc_bracket", code), "42,42");
+}
+
+#[test]
+fn proc_arity_test() {
+    let code = "
+    def test_main
+      [Proc.new { }.arity, Proc.new { |a, b| }.arity, Proc.new { |*a| }.arity].join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("proc_arity", code), "0,2,-1");
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_no_parameters_test() {
+    let code = "
+    class Shape
+      def render
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:render).arity
+    end
+    ";
+    // Assert
+    assert_eq!(run_i("instance_method_arity_none", code), 0);
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_required_parameters_test() {
+    let code = "
+    class Shape
+      def move(x, y)
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:move).arity
+    end
+    ";
+    // Assert
+    assert_eq!(run_i("instance_method_arity_required", code), 2);
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_a_splat_test() {
+    let code = "
+    class Shape
+      def scale(*args)
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:scale).arity
+    end
+    ";
+    // Assert
+    assert_eq!(run_i("instance_method_arity_splat", code), -1);
+}

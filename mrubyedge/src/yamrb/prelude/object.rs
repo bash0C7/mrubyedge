@@ -55,9 +55,21 @@ pub(crate) fn initialize_object(vm: &mut VM) {
     );
     mrb_define_cmethod(
         vm,
-        basic_object_class,
+        basic_object_class.clone(),
         "method_missing",
         Box::new(mrb_object_method_missing),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "__send__",
+        Box::new(mrb_object_send),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class,
+        "__id__",
+        Box::new(mrb_object_object_id),
     );
 
     // mruby 4.0 compiles `defined?(...)` into a call to one of these instead
@@ -141,6 +153,37 @@ pub(crate) fn initialize_object(vm: &mut VM) {
     mrb_define_cmethod(
         vm,
         object_class.clone(),
+        "instance_variable_get",
+        Box::new(mrb_object_instance_variable_get),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "instance_variable_set",
+        Box::new(mrb_object_instance_variable_set),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "instance_variable_defined?",
+        Box::new(mrb_object_instance_variable_defined),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "instance_variables",
+        Box::new(mrb_object_instance_variables),
+    );
+    mrb_define_cmethod(vm, object_class.clone(), "send", Box::new(mrb_object_send));
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__send__",
+        Box::new(mrb_object_send),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
         "__id__",
         Box::new(mrb_object_object_id),
     );
@@ -156,6 +199,30 @@ pub(crate) fn initialize_object(vm: &mut VM) {
         object_class.clone(),
         "raise",
         Box::new(mrb_object_raise),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "freeze",
+        Box::new(mrb_object_freeze),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "frozen?",
+        Box::new(mrb_object_frozen),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "require",
+        Box::new(mrb_object_require),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "require_relative",
+        Box::new(mrb_object_require),
     );
     mrb_define_cmethod(vm, object_class.clone(), "nil?", Box::new(mrb_object_nil_p));
     mrb_define_cmethod(
@@ -370,6 +437,122 @@ fn mrb_kernel_defined_gvar(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObje
     Ok(defined_as(
         "global-variable",
         vm.globals.contains_key(&name),
+    ))
+}
+
+// Object#instance_variable_get(:@name)
+fn mrb_object_instance_variable_get(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let name = ivar_name_of(args.first(), "Object#instance_variable_get")?;
+    Ok(this.get_ivar(&name))
+}
+
+// Object#instance_variable_set(:@name, value)
+fn mrb_object_instance_variable_set(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let name = ivar_name_of(args.first(), "Object#instance_variable_set")?;
+    let value = args
+        .get(1)
+        .cloned()
+        .unwrap_or_else(|| RObject::nil().to_refcount_assigned());
+    this.set_ivar(&name, value.clone());
+    Ok(value)
+}
+
+// Object#instance_variable_defined?(:@name)
+fn mrb_object_instance_variable_defined(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let name = ivar_name_of(args.first(), "Object#instance_variable_defined?")?;
+    let defined = this.ivar.borrow().contains_key(&name);
+    Ok(RObject::boolean(defined).to_refcount_assigned())
+}
+
+// Object#instance_variables -> [Symbol]
+fn mrb_object_instance_variables(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let names: Vec<Rc<RObject>> = this
+        .ivar
+        .borrow()
+        .keys()
+        .map(|name| RObject::symbol(RSym::new(name.clone())).to_refcount_assigned())
+        .collect();
+    Ok(RObject::array(names).to_refcount_assigned())
+}
+
+// Object#send(name, *args, &block)
+fn mrb_object_send(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let name_obj = args
+        .first()
+        .ok_or_else(|| Error::RuntimeError("Object#send expects a method name".to_string()))?;
+    let name = super::module::method_name_of(name_obj, "Object#send")?;
+    mrb_funcall(vm, Some(this), &name, &args[1..])
+}
+
+// An instance variable name given as either a Symbol or a String, with the
+// leading `@` kept (that is how ivars are keyed internally).
+fn ivar_name_of(obj: Option<&Rc<RObject>>, who: &str) -> Result<String, Error> {
+    let obj = obj.ok_or_else(|| Error::RuntimeError(format!("{} expects a variable name", who)))?;
+    let name = super::module::method_name_of(obj, who)?;
+    if name.starts_with('@') {
+        Ok(name)
+    } else {
+        Err(Error::RuntimeError(format!(
+            "`{}' is not allowed as an instance variable name",
+            name
+        )))
+    }
+}
+
+// Object#freeze: the VM has no frozen state, so this only returns the
+// receiver; code that freezes a constant table still runs.
+fn mrb_object_freeze(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    vm.getself()
+}
+
+// Object#frozen?: always false, see Object#freeze.
+fn mrb_object_frozen(_vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    Ok(RObject::boolean(false).to_refcount_assigned())
+}
+
+// Libraries this VM may already be carrying, and the constant that says
+// whether the build actually includes one. `require` answers from this.
+const LINKED_FEATURES: &[(&str, &str)] = &[
+    ("uri", "URI"),
+    ("json", "JSON"),
+    ("time", "Time"),
+    ("math", "Math"),
+    ("securerandom", "SecureRandom"),
+];
+
+// Kernel#require / #require_relative: there is no load path, everything a
+// program uses is linked in at build time. A library this build carries is
+// already loaded, so `require` answers false the way a repeated require
+// does; anything else is LoadError, which lets code that probes for an
+// optional library (`begin; require "js"; rescue LoadError; end`) load.
+fn mrb_object_require(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let name: String = match args.first() {
+        Some(arg) => arg.as_ref().try_into().unwrap_or_else(|_| "?".to_string()),
+        None => "?".to_string(),
+    };
+    let feature = name.trim_start_matches("./").trim_end_matches(".rb");
+    if let Some((_, konst)) = LINKED_FEATURES.iter().find(|(lib, _)| *lib == feature)
+        && vm.get_const_by_name(konst).is_some()
+    {
+        return Ok(RObject::boolean(false).to_refcount_assigned());
+    }
+    Err(Error::TaggedError(
+        "LoadError",
+        format!("cannot load such file -- {}", name),
     ))
 }
 

@@ -718,3 +718,98 @@ fn a_symbol_asked_for_a_symbol_is_itself_test() {
     // Assert
     assert_eq!(run_s("symbol_to_sym", code), "a,b");
 }
+
+#[test]
+fn object_dunder_send_dispatches_with_args_test() {
+    let code = r#"
+    class TestClass
+      def hello(name)
+        "Hello, #{name}!"
+      end
+    end
+
+    def test_main
+      TestClass.new.__send__("hello", "World")
+    end
+    "#;
+    // Assert
+    assert_eq!(run_s("dunder_send", code), "Hello, World!");
+}
+
+#[test]
+fn object_dunder_id_equals_object_id_test() {
+    let code = r#"
+    def test_main
+      obj = Object.new
+      obj.__id__ == obj.object_id
+    end
+    "#;
+    // Assert
+    assert!(run_b("dunder_id_equals_object_id", code));
+}
+
+#[test]
+fn object_dunder_id_differs_between_objects_test() {
+    let code = r##"
+    def test_main
+      a = Object.new
+      b = Object.new
+      "#{a.__id__ == b.__id__}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("dunder_id_differs", code), "false");
+}
+
+#[test]
+fn object_freeze_is_accepted_and_frozen_stays_false_test() {
+    // Characterization: the VM has no frozen state. `freeze` returns the
+    // receiver and `frozen?` is always false; a future implementation of
+    // freezing is expected to flip the second half of this expectation.
+    let code = r##"
+    NAMES = ['a', 'b'].freeze
+
+    def test_main
+      obj = Object.new
+      before = obj.frozen?
+      obj.freeze
+      "#{NAMES.size},#{before},#{obj.frozen?}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("frozen_before_after", code), "2,false,false");
+}
+
+#[test]
+fn require_of_something_not_linked_in_raises_load_error_test() {
+    // There is no load path: a file that was never linked into the bytecode
+    // raises LoadError, so code probing for an optional library still loads.
+    let code = "
+    def test_main
+      begin
+        require 'js'
+        false
+      rescue LoadError
+        true
+      end
+    end
+    ";
+    // Assert
+    assert!(run_b("require_load_error", code));
+}
+
+#[test]
+fn require_relative_raises_load_error_test() {
+    let code = "
+    def test_main
+      begin
+        require_relative './nonexistent'
+        false
+      rescue LoadError
+        true
+      end
+    end
+    ";
+    // Assert
+    assert!(run_b("require_relative_load_error", code));
+}

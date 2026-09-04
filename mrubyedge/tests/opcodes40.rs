@@ -641,3 +641,102 @@ fn break_out_of_a_blkcalled_block_ends_the_yielding_call_test() {
     // Assert
     assert_eq!(result, 5);
 }
+
+#[test]
+fn tdef_defines_the_method_on_the_target_class_test() {
+    // def m; 7; end; m  -- METHOD and DEF fused
+    let result = run_main(
+        4,
+        &[
+            (TDEF, BBB(1, 0, 0)),
+            (SSEND, BBB(1, 0, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn tdef_leaves_the_method_name_in_the_register_test() {
+    let result = run_main(
+        4,
+        &[(TDEF, BBB(1, 0, 0)), (RETURN, B(1)), (STOP, Z)],
+        &["m"],
+        vec![method_returning_7()],
+    );
+
+    // Assert
+    assert!(matches!(&result.value, RValue::Symbol(sym) if sym.name == "m"));
+}
+
+#[test]
+fn sdef_defines_a_singleton_method_on_an_object_test() {
+    // def self.m; 7; end; m
+    let result = run_main(
+        4,
+        &[
+            (LOADSELF, B(1)),
+            (SDEF, BBB(1, 0, 0)),
+            (SSEND, BBB(1, 0, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn sdef_defines_a_singleton_method_on_a_class_test() {
+    // def Object.m; 7; end; Object.m
+    let result = run_main(
+        4,
+        &[
+            (OCLASS, B(1)),
+            (SDEF, BBB(1, 0, 0)),
+            (OCLASS, B(1)),
+            (SEND0, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn sdef_defines_a_singleton_method_on_a_module_test() {
+    // module Mod; end; def Mod.m; 7; end; Mod.m
+    let result = run_main(
+        4,
+        &[
+            (LOADNIL, B(1)),
+            (MODULE, BB(1, 1)),
+            (SDEF, BBB(1, 0, 0)),
+            (GETCONST, BB(1, 1)),
+            (SEND0, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m", "Mod"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}

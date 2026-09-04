@@ -509,6 +509,12 @@ pub(crate) fn consume_expr(
         SUBILV => {
             op_subilv(vm, operand)?;
         }
+        TDEF => {
+            op_tdef(vm, operand)?;
+        }
+        SDEF => {
+            op_sdef(vm, operand)?;
+        }
         _ => {
             unimplemented!("{:?}: Not supported yet", code)
         }
@@ -2690,6 +2696,57 @@ pub(crate) fn op_tclass(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         TargetContext::Module(module) => Rc::new(module.clone().into()),
     };
     vm.current_regs()[a].replace(val);
+    Ok(())
+}
+
+// The method a TDEF/SDEF builds. Like OP_METHOD followed by OP_DEF, except
+// the two never exist as separate values.
+fn method_from_irep(vm: &VM, index: usize, sym: RSym) -> RProc {
+    RProc {
+        irep: Some(vm.current_irep.reps[index].clone()),
+        is_rb_func: true,
+        is_fnblock: false,
+        sym_id: Some(sym),
+        next: None,
+        func: None,
+        // a method cannot trace the upper environment
+        environ: None,
+        block_self: None,
+    }
+}
+
+// TDEF: target_class.newmethod(Syms[b], Irep[c]); R[a] = Syms[b]
+pub(crate) fn op_tdef(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b, c) = operand.as_bbb()?;
+    let sym = vm.current_irep.syms[b as usize].clone();
+    let method = method_from_irep(vm, c as usize, sym.clone());
+    match vm.target_class.clone() {
+        TargetContext::Class(klass) => {
+            klass.procs.borrow_mut().insert(sym.name.clone(), method);
+        }
+        TargetContext::Module(module) => {
+            module.procs.borrow_mut().insert(sym.name.clone(), method);
+        }
+    }
+    vm.current_regs()[a as usize].replace(RObject::symbol(sym).to_refcount_assigned());
+    Ok(())
+}
+
+// SDEF: R[a].singleton_class.newmethod(Syms[b], Irep[c]); R[a] = Syms[b]
+pub(crate) fn op_sdef(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b, c) = operand.as_bbb()?;
+    let sym = vm.current_irep.syms[b as usize].clone();
+    let method = method_from_irep(vm, c as usize, sym.clone());
+    let target = vm.get_current_regs_cloned(a as usize)?;
+    let singleton = match target.tt {
+        RType::Class | RType::Module => target.initialize_or_get_singleton_class_for_class(vm),
+        _ => target.initialize_or_get_singleton_class(vm),
+    };
+    singleton
+        .procs
+        .borrow_mut()
+        .insert(sym.name.clone(), method);
+    vm.current_regs()[a as usize].replace(RObject::symbol(sym).to_refcount_assigned());
     Ok(())
 }
 

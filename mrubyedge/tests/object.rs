@@ -522,3 +522,199 @@ fn object_public_send_no_args_test() {
         .unwrap();
     assert_eq!(result, "Hi!");
 }
+
+// BasicObject is the root: a class inheriting from it starts with nothing
+// but what dispatch itself needs.
+
+#[test]
+fn basic_object_is_the_root_of_the_hierarchy_test() {
+    let code = "
+    class Bare < BasicObject; end
+
+    def test_main
+      Bare.ancestors.map { |k| k.to_s }.join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("basic_object_ancestors", code), "Bare,BasicObject");
+}
+
+#[test]
+fn a_basic_object_subclass_has_no_object_methods_test() {
+    let code = "
+    class Bare < BasicObject
+      def initialize
+        @x = 1
+      end
+    end
+
+    def test_main
+      begin
+        Bare.new.to_s
+        'answered'
+      rescue NoMethodError
+        'no to_s'
+      end
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("basic_object_no_to_s", code), "no to_s");
+}
+
+// Object#equal? is identity, with immediates compared by value.
+
+#[test]
+fn different_objects_are_not_identical_test() {
+    let code = "
+    def test_main
+      a = 'x'
+      b = []
+      \"#{a.equal?(b)}\"
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("equal_identity_diff", code), "false");
+}
+
+#[test]
+fn an_object_is_identical_to_itself_test() {
+    let code = "
+    def test_main
+      a = 'x'
+      a.equal?(a)
+    end
+    ";
+    // Assert
+    assert!(run_b("equal_identity_self", code));
+}
+
+#[test]
+fn string_literals_are_not_identical_test() {
+    let code = "
+    def test_main
+      \"#{'same'.equal?('same')}\"
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("equal_identity_string_literals", code), "false");
+}
+
+#[test]
+fn symbols_and_nil_are_identical_across_references_test() {
+    let code = "
+    def test_main
+      :sym.equal?(:sym) && nil.equal?(nil)
+    end
+    ";
+    // Assert
+    assert!(run_b("equal_identity_singletons", code));
+}
+
+// BasicObject#! is true for nil and false only.
+
+#[test]
+fn bang_negates_false_test() {
+    let code = "
+    def test_main
+      !false
+    end
+    ";
+    // Assert
+    assert!(run_b("bang_false", code));
+}
+
+#[test]
+fn bang_negates_nil_test() {
+    let code = "
+    def test_main
+      !nil
+    end
+    ";
+    // Assert
+    assert!(run_b("bang_nil", code));
+}
+
+#[test]
+fn bang_of_a_truthy_string_is_false_test() {
+    let code = "
+    def test_main
+      \"#{!'a string'}\"
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("bang_string", code), "false");
+}
+
+#[test]
+fn bang_of_zero_is_false_test() {
+    let code = "
+    def test_main
+      \"#{!0}\"
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("bang_zero", code), "false");
+}
+
+// `Klass === obj` is `obj.is_a?(Klass)`, which is what `case x when Hash`
+// compiles to.
+
+#[test]
+fn case_when_a_class_asks_whether_the_value_is_one_test() {
+    let code = "
+    def kind(v)
+      case v
+      when Hash then 'hash'
+      when Array then 'array'
+      when String then 'string'
+      when Integer then 'int'
+      when nil then 'nil'
+      else 'other'
+      end
+    end
+
+    def test_main
+      [{}, [], 's', 1, nil, 1.5].map { |v| kind(v) }.join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(
+        run_s("case_when_class", code),
+        "hash,array,string,int,nil,other"
+    );
+}
+
+#[test]
+fn case_when_a_class_follows_the_ancestors_test() {
+    let code = "
+    class Animal; end
+    class Cat < Animal; end
+    module Loud; end
+    class Siren; include Loud; end
+
+    def kind(v)
+      case v
+      when Loud then 'loud'
+      when Animal then 'animal'
+      else 'other'
+      end
+    end
+
+    def test_main
+      [Cat.new, Siren.new, 1].map { |v| kind(v) }.join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("case_when_ancestors", code), "animal,loud,other");
+}
+
+#[test]
+fn a_symbol_asked_for_a_symbol_is_itself_test() {
+    let code = "
+    def test_main
+      [:a.to_sym, 'b'.to_sym].map { |s| s.to_s }.join(',')
+    end
+    ";
+    // Assert
+    assert_eq!(run_s("symbol_to_sym", code), "a,b");
+}

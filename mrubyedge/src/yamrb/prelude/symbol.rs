@@ -14,6 +14,12 @@ pub(crate) fn initialize_symbol(vm: &mut VM) {
     mrb_define_cmethod(
         vm,
         symbol_class.clone(),
+        "to_sym",
+        Box::new(mrb_symbol_to_sym),
+    );
+    mrb_define_cmethod(
+        vm,
+        symbol_class.clone(),
         "inspect",
         Box::new(mrb_symbol_inspect),
     );
@@ -33,6 +39,11 @@ fn mrb_symbol_inspect(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>,
 fn mrb_symbol_to_s(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let symbol: String = vm.getself()?.as_ref().try_into()?;
     Ok(Rc::new(RObject::string(symbol)))
+}
+
+// Symbol#to_sym: a Symbol asked for a Symbol is itself.
+fn mrb_symbol_to_sym(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    vm.getself()
 }
 
 fn mrb_symbol_to_proc(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

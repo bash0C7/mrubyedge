@@ -104,6 +104,8 @@ pub struct VM {
 
     // common class
     pub object_class: Rc<RClass>,
+    /// Root of the class hierarchy, `Object`'s superclass.
+    pub basic_object_class: Rc<RClass>,
     pub builtin_class_table: RHashMap<&'static str, Rc<RClass>>,
     pub class_object_table: RHashMap<String, Rc<RObject>>,
 
@@ -258,7 +260,17 @@ impl VM {
         let builtin_class_table = RHashMap::default();
         let class_object_table = RHashMap::default();
 
-        let object_class = Rc::new(RClass::new("Object", None, None));
+        // BasicObject is the root of the class hierarchy; Object inherits
+        // from it. Almost nothing is defined on BasicObject, which is the
+        // point: a class inheriting from it starts with a clean namespace.
+        let basic_object_class = Rc::new(RClass::new("BasicObject", None, None));
+        basic_object_class.update_module_weakref();
+
+        let object_class = Rc::new(RClass::new(
+            "Object",
+            Some(basic_object_class.clone()),
+            None,
+        ));
         object_class.update_module_weakref();
 
         let id = 1; // TODO generator
@@ -324,6 +336,7 @@ impl VM {
             #[cfg(feature = "insn-limit")]
             insn_limit,
             object_class,
+            basic_object_class,
             builtin_class_table,
             class_object_table,
             globals,

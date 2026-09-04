@@ -1042,6 +1042,20 @@ pub(crate) fn do_op_send(
     b: u8,
     c: u8,
 ) -> Result<(), Error> {
+    let method_id = vm.current_irep.syms[b as usize].clone();
+    do_op_send_with_id(vm, recv_index, blk_index, a, method_id, c)
+}
+
+// The body of OP_SEND, for a method named directly rather than through the
+// IREP's symbol table. OP_EQ and its kin dispatch through here.
+pub(crate) fn do_op_send_with_id(
+    vm: &mut VM,
+    recv_index: usize,
+    blk_index: Option<usize>,
+    a: u8,
+    method_id: RSym,
+    c: u8,
+) -> Result<(), Error> {
     let mut n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
     // CALL_MAXARGS in either nibble means "packed": `f(*args)` hands over one
@@ -1050,7 +1064,6 @@ pub(crate) fn do_op_send(
     let kw_splat = k == CALL_MAXARGS;
     let kw_slots = if kw_splat { 1 } else { k * 2 };
 
-    let method_id = vm.current_irep.syms[b as usize].clone();
     if &method_id.name == "__debug__vm_info" {
         // Special debug method to dump VM info
         vm.debug_dump_to_stdout(32);
@@ -1910,6 +1923,13 @@ pub(crate) fn op_le(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_eq(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
     let b = a + 1;
+    // A class is free to define its own ==; identity is only the fallback
+    // Object gives it. The operands already sit where a send wants them
+    // (receiver at a, argument at a+1), so hand an object's own == the call.
+    let lhs = vm.get_current_regs_cloned(a)?;
+    if matches!(lhs.value, RValue::Instance(_)) {
+        return do_op_send_with_id(vm, a, None, a as u8, RSym::new("==".to_string()), 1);
+    }
     let lhs = vm.take_current_regs(a)?;
     let rhs = vm.get_current_regs_cloned(b)?;
     let result = mrb_object_is_equal(vm, lhs, rhs);

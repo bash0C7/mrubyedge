@@ -80,3 +80,125 @@ fn equal_test() {
         .unwrap();
     assert!(result);
 }
+
+// OP_EQ compared identity and never asked the object, so a class that
+// defines its own == had it quietly ignored.
+
+#[test]
+fn user_defined_equals_is_asked_test() {
+    let code = r##"
+    class Point
+      attr_reader :x, :y
+      def initialize(x, y)
+        @x = x
+        @y = y
+      end
+      def ==(other)
+        return false unless other.is_a?(Point)
+        @x == other.x && @y == other.y
+      end
+    end
+
+    def test_main
+      same = Point.new(1, 2) == Point.new(1, 2)
+      diff = Point.new(1, 2) == Point.new(1, 3)
+      other = Point.new(1, 2) == "not a point"
+      "#{same}|#{diff}|#{other}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("user_defined_equals", code), "true|false|false");
+}
+
+#[test]
+fn dispatching_equals_leaves_the_caller_registers_alone_test() {
+    // The callee needs a register window of its own; sharing the caller's
+    // frame overwrites whatever the surrounding expression was holding.
+    let code = r##"
+    class Point
+      attr_reader :x
+      def initialize(x)
+        @x = x
+      end
+      def ==(other)
+        @x == other.x
+      end
+    end
+
+    def test_main
+      label = "kept"
+      flag = Point.new(1) == Point.new(1)
+      "#{label}:#{flag}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("equals_registers", code), "kept:true");
+}
+
+#[test]
+fn an_object_without_its_own_equals_still_compares_by_identity_test() {
+    let code = r##"
+    class Plain
+    end
+
+    def test_main
+      a = Plain.new
+      "#{a == a}|#{a == Plain.new}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("plain_equals", code), "true|false");
+}
+
+// `!=` is `!(self == other)`, as mruby's BasicObject#!= defines it, so a
+// user-defined == decides != too.
+
+#[test]
+fn not_eq_honors_a_user_defined_double_eq_that_says_true_test() {
+    let code = r##"
+    class AlwaysEqual
+      def ==(other)
+        true
+      end
+    end
+
+    def test_main
+      "#{AlwaysEqual.new != AlwaysEqual.new}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("not_eq_always_equal", code), "false");
+}
+
+#[test]
+fn not_eq_honors_a_user_defined_double_eq_that_says_false_test() {
+    let code = r##"
+    class NeverEqual
+      def ==(other)
+        false
+      end
+    end
+
+    def test_main
+      a = NeverEqual.new
+      "#{a != a}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("not_eq_never_equal", code), "true");
+}
+
+#[test]
+fn not_eq_without_a_user_defined_double_eq_still_compares_by_identity_test() {
+    let code = r##"
+    class Plain
+    end
+
+    def test_main
+      a = Plain.new
+      "#{a != a}|#{a != Plain.new}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("plain_not_equals", code), "false|true");
+}

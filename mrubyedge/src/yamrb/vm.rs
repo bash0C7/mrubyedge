@@ -112,8 +112,9 @@ pub struct VM {
 
     pub upper: Option<Rc<ENV>>,
     // TODO: using fixed array?
-    pub cur_env: RHashMap<usize, Rc<ENV>>,
-    pub has_env_ref: RHashMap<usize, bool>,
+    /// The environment each activation of an IREP created, keyed by the IREP and its register offset.
+    pub cur_env: RHashMap<(usize, usize), Rc<ENV>>,
+    pub has_env_ref: RHashMap<(usize, usize), bool>,
 
     pub fn_table: RFnTable,
     pub fn_block_stack: RFnStack,

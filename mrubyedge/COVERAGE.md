@@ -8,6 +8,18 @@ A list of currently supported classes and methods, based on the implementations 
 > - `(alias: x)` — also available under this name
 > - `[feature: xxx]` — requires the corresponding Cargo feature flag
 
+## Bytecode: mruby 3.x (RITE0300) and mruby 4.0 (RITE0400)
+
+The loader picks the opcode table from the major version in the RITE header, so chunks from mruby 3.x and from mruby 4.0 (PicoRuby's mrbc) both run; any other version is refused by `rite::load`. See `docs/table.html` for the per-opcode status under either numbering.
+
+The opcodes mruby 4.0 added: `GETIDX0`, `MATCHERR`, `SSEND0`, `SEND0`, `BLKCALL`, `RETSELF`, `RETNIL`, `RETTRUE`, `RETFALSE`, `ADDILV`, `SUBILV`, `TDEF`, `SDEF`; `ENTER` reads the 24-bit flags, including `&nil` (a method refusing a block). `LOADTRUE`/`LOADFALSE`/`LOADI8` are 3.x's `LOADT`/`LOADF`/`LOADI` renamed.
+
+| Note | |
+|---|---|
+| `MATCHERR` | raises `NoMatchingPatternError`; the rest of pattern matching (`deconstruct`, `deconstruct_keys`) is not provided, so only value patterns in `case/in` run end to end |
+| `defined?` | mruby 4.0 compiles it to `__defined_const?` and siblings (see Object) |
+| tests | `tests/opcodes40.rs` (hand-built IREPs, one per opcode) and `tests/fixtures/mruby40.mrb` (a chunk compiled by PicoRuby 4.0.3) |
+
 ---
 
 ## Object (base of all classes)
@@ -37,6 +49,22 @@ A list of currently supported classes and methods, based on the implementations 
 | `#block_given?` | |
 | `#respond_to?` | |
 | `#public_send` | |
+| `#!` | |
+| `#equal?` | identity comparison, not value equality |
+| `#send` | alias: `__send__` |
+| `#instance_variable_get` | |
+| `#instance_variable_set` | |
+| `#instance_variable_defined?` | |
+| `#instance_variables` | |
+| `#freeze` | returns self and does nothing; no frozen state is modeled |
+| `#frozen?` | always returns `false` |
+| `#require` | only knows the linked-in features listed in `LINKED_FEATURES` (`uri`, `json`, `time`, `math`, `securerandom`); raises `LoadError` for anything else |
+| `#require_relative` | shares `#require`'s implementation; a relative path never matches a linked feature, so it always raises `LoadError` |
+| `#__defined_const?` | internal; backs `defined?(Foo)` in mruby 4.0 compiled bytecode |
+| `#__defined_const_path?` | internal; backs `defined?(Foo::Bar)` |
+| `#__defined_method?` | internal; backs `defined?(foo)` for a method call |
+| `#__defined_ivar?` | internal; backs `defined?(@foo)` |
+| `#__defined_gvar?` | internal; backs `defined?($foo)` |
 | `#wasm?` | mruby/edge specific |
 | `#puts` | `[feature: wasi]` only |
 | `#p` | `[feature: wasi]` only |
@@ -50,6 +78,28 @@ A list of currently supported classes and methods, based on the implementations 
 | `MRUBY_VERSION` | same as above |
 | `MRUBY_EDGE_VERSION` | same as above |
 | `RUBY_ENGINE` | VM ENGINE string |
+| `ENV` | a plain Hash; carries the host's environment variables when built with `[feature: wasi]` and a host to ask, otherwise empty |
+
+---
+
+## BasicObject
+
+`prelude/object.rs`
+
+Deliberately carries almost nothing beyond what dispatch itself needs, so a class inheriting from it sees an empty namespace (useful for `method_missing` DSLs).
+
+### Instance methods
+
+| Method | Notes |
+|---|---|
+| `#initialize` | |
+| `#==` | |
+| `#!=` | |
+| `#!` | |
+| `#equal?` | identity |
+| `#method_missing` | |
+| `#__send__` | |
+| `#__id__` | |
 
 ---
 
@@ -75,6 +125,11 @@ Exception
     ├── TypeError
     ├── ArgumentError
     ├── RangeError
+    ├── IndexError
+    │   ├── KeyError
+    │   └── StopIteration
+    ├── FrozenError
+    ├── NoMatchingPatternError
     ├── ZeroDivisionError
     ├── NotImplementedError
     ├── SecurityError
@@ -88,6 +143,7 @@ Exception
 | Method | Notes |
 |---|---|
 | `#message` | |
+| `#backtrace` | always returns `[]`; the VM keeps no call stack to report |
 
 ---
 
@@ -97,8 +153,23 @@ Exception
 
 | Method | Notes |
 |---|---|
-| `#include` | |
+| `.new` | anonymous module; a block, if given, is `module_eval`'d against it |
+| `#include` | calls `self.included(base)` on the included module if it defines that hook |
 | `#ancestors` | |
+| `#define_method` | takes a block or a `Proc` as the method body |
+| `#module_eval` | alias: `class_eval` |
+| `#instance_methods` | `include_super` argument defaults to `true` |
+| `#method_defined?` | |
+| `#instance_method` | returns the method body as a `Proc` (not a full `UnboundMethod`) |
+| `#private_instance_methods` | always returns `[]`; no method visibility is modeled |
+| `#const_defined?` | |
+| `#const_get` | |
+| `#const_set` | |
+| `#private` | accepted as a no-op; no method visibility is modeled |
+| `#protected` | accepted as a no-op; no method visibility is modeled |
+| `#public` | accepted as a no-op; no method visibility is modeled |
+| `#to_s` | defined in `prelude/class.rs`; alias: `#name` |
+| `#name` | defined in `prelude/class.rs`; same as `#to_s`/`#inspect` |
 
 ---
 
@@ -114,6 +185,41 @@ Exception
 | `#attr_accessor` | alias: `attr` |
 | `#ancestors` | |
 | `#inspect` | defined on the Module side |
+
+---
+
+## Data
+
+`prelude/data.rs`
+
+Ruby 3.2's immutable value object: `Point = Data.define(:x, :y)` builds a class whose instances carry exactly those members. `Data.define` does not accept a block to add methods (that would need a Ruby-level class body).
+
+### Class methods (on `Data`)
+
+| Method | Notes |
+|---|---|
+| `.define` | takes Symbol (or String) member names |
+
+### Class methods (on a class returned by `Data.define`)
+
+| Method | Notes |
+|---|---|
+| `.new` | alias: `.[]`; accepts positional or keyword arguments |
+| `.[]` | alias of `.new` |
+| `.members` | |
+
+### Instance methods (on a `Data.define`d class)
+
+| Method | Notes |
+|---|---|
+| `#<member>` | one reader per declared member, e.g. `#x`, `#y` |
+| `#members` | |
+| `#to_h` | |
+| `#with` | returns a copy with the given keyword members replaced |
+| `#==` | alias: `eql?` |
+| `#eql?` | alias of `#==` |
+| `#inspect` | alias: `#to_s`; formatted as `#<data x=1, y=2>` |
+| `#to_s` | alias of `#inspect` |
 
 ---
 
@@ -161,6 +267,9 @@ Exception
 | `#-@` | unary minus |
 | `#**` | mixed arithmetic with Integer |
 | `#abs` | |
+| `#nan?` | |
+| `#infinite?` | |
+| `#finite?` | |
 | `#inspect` | alias: `to_s` |
 | `#clamp` | |
 
@@ -211,6 +320,7 @@ Exception
 | Method | Notes |
 |---|---|
 | `#to_s` | |
+| `#to_sym` | returns self |
 | `#inspect` | `:sym` format |
 | `#to_proc` | converts symbol to a proc that calls the method |
 
@@ -224,6 +334,8 @@ Exception
 |---|---|
 | `.new` | class method |
 | `#call` | |
+| `#[]` | alias of `#call` |
+| `#arity` | reads the required-argument count back from the `ENTER` instruction; `-1` for a Rust-implemented method (no `ENTER` to read) |
 
 ---
 
@@ -237,8 +349,7 @@ Exception
 | `#+` | string concatenation |
 | `#*` | repetition |
 | `#<<` | destructive append |
-| `#[]` | alias: `slice` |
-| `#[]=` | cf. `slice!` |
+| `#[]` | alias: `slice`; also accepts a Range |
 | `#b` | returns a binary (byte) string |
 | `#clear` | |
 | `#chomp` | |
@@ -249,9 +360,13 @@ Exception
 | `#setbyte` | |
 | `#index` | |
 | `#ord` | |
-| `#slice` | |
-| `#slice!` | |
+| `#slice` | also accepts a Range |
+| `#slice!` | also accepts a Range |
 | `#split` | |
+| `#sub` | pattern is a String or `[feature: mruby-regexp]` Regexp; replacement is a String or a block |
+| `#sub!` | destructive `#sub`; returns `nil` when the pattern never matched |
+| `#gsub` | pattern is a String or `[feature: mruby-regexp]` Regexp; replacement is a String or a block |
+| `#gsub!` | destructive `#gsub`; returns `nil` when the pattern never matched |
 | `#lstrip` | |
 | `#lstrip!` | |
 | `#rstrip` | |
@@ -264,10 +379,13 @@ Exception
 | `#include?` | |
 | `#bytes` | |
 | `#chars` | |
+| `#each_byte` | takes a block |
+| `#each_char` | takes a block |
 | `#upcase` | |
 | `#upcase!` | |
 | `#downcase` | |
 | `#downcase!` | |
+| `#capitalize` | first character upcased, rest downcased |
 | `#to_i` | |
 | `#to_f` | |
 | `#unpack` | pack format: `Q q L l I i S s C c` |
@@ -289,6 +407,8 @@ Included in Array, Hash, and Range.
 | `#map` | |
 | `#find` | |
 | `#select` | |
+| `#filter` | alias of `#select` |
+| `#reject` | non-destructive; `#delete_if` is the destructive sibling |
 | `#all?` | |
 | `#any?` | |
 | `#delete_if` | |
@@ -326,6 +446,7 @@ Includes Enumerable.
 | `#size` | alias: `length` |
 | `#include?` | |
 | `#&` | set intersection |
+| `#-` | set difference |
 | `#\|` | set union |
 | `#first` | |
 | `#last` | |
@@ -362,10 +483,18 @@ Includes Enumerable.
 | `#delete` | |
 | `#empty?` | |
 | `#has_key?` | |
+| `#key?` | alias of `#has_key?` |
+| `#member?` | alias of `#has_key?` |
+| `#include?` | alias of `#has_key?` |
+| `#fetch` | raises `KeyError` when the key is absent and no default/block was given |
+| `#dig` | walks nested hashes, stopping at the first `nil` |
 | `#has_value?` | |
 | `#key` | reverse lookup: value → key |
 | `#keys` | |
 | `#each` | block receives key and value |
+| `#each_pair` | alias of `#each` |
+| `#each_key` | takes a block |
+| `#each_value` | takes a block |
 | `#size` | alias: `length`, `count` |
 | `#merge` | |
 | `#merge!` | |
@@ -444,6 +573,19 @@ Uses the Rust `regex` crate.
 | Method | Notes |
 |---|---|
 | `#[]` | capture group reference |
+
+---
+
+## URI `[feature: mruby-uri]`
+
+`prelude/uri.rs`  
+`application/x-www-form-urlencoded` encoding only.
+
+| Method | Notes |
+|---|---|
+| `.encode_www_form` | takes a Hash or an Array of `[key, value]` pairs |
+| `.encode_www_form_component` | |
+| `.decode_www_form_component` | |
 
 ---
 

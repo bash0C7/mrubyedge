@@ -479,6 +479,12 @@ pub(crate) fn consume_expr(
         }
 
         // mruby 4.0 (RITE0400) opcodes.
+        SSEND0 => {
+            op_ssend0(vm, operand)?;
+        }
+        SEND0 => {
+            op_send0(vm, operand)?;
+        }
         RETSELF => {
             op_retself(vm, operand)?;
         }
@@ -1025,6 +1031,18 @@ pub(crate) fn op_move(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     do_op_send(vm, 0, None, a, b, c)
+}
+
+// SSEND0: R[a] = self.send(Syms[b]), no arguments.
+pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    do_op_send(vm, 0, None, a, b, 0)
+}
+
+// SEND0: R[a] = R[a].send(Syms[b]), no arguments.
+pub(crate) fn op_send0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    do_op_send(vm, a as usize, None, a, b, 0)
 }
 
 pub(crate) fn op_ssendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

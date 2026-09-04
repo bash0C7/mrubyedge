@@ -222,3 +222,83 @@ fn retfalse_returns_false_test() {
     // Assert
     assert!(matches!(result.value, RValue::Bool(false)));
 }
+
+// `def m; 7; end`, the method every send test calls.
+fn method_returning_7() -> IREP {
+    irep(1, 2, &[(LOADI_7, B(1)), (RETURN, B(1))], &[], vec![])
+}
+
+fn run_main(
+    nregs: usize,
+    code: &[(OpCode, Fetched)],
+    syms: &[&str],
+    reps: Vec<IREP>,
+) -> Rc<RObject> {
+    let mut vm = VM::new_by_raw_irep(irep(0, nregs, code, syms, reps));
+    vm.run().unwrap()
+}
+
+#[test]
+fn ssend0_sends_to_self_with_no_arguments_test() {
+    // def m; 7; end; m
+    let result = run_main(
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (SSEND0, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn send0_sends_to_the_receiver_in_the_register_test() {
+    // def m; 7; end; self.m
+    let result = run_main(
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (LOADSELF, B(1)),
+            (SEND0, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method_returning_7()],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn send0_reaches_a_method_written_in_rust_test() {
+    // 3.to_s
+    let result = run_main(
+        3,
+        &[
+            (LOADI_3, B(1)),
+            (SEND0, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["to_s"],
+        vec![],
+    );
+    let result: String = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, "3");
+}

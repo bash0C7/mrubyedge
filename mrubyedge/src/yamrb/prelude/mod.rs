@@ -6,6 +6,7 @@ use super::vm::VM;
 
 pub mod array;
 pub mod class;
+pub mod data;
 pub mod enumerable;
 pub mod exception;
 pub mod falseclass;
@@ -33,6 +34,7 @@ pub fn prelude(vm: &mut VM) {
     exception::initialize_exception(vm);
     module::initialize_module(vm);
     class::initialize_class(vm);
+    data::initialize_data(vm);
     integer::initialize_integer(vm);
     nilclass::initialize_nilclass(vm);
     trueclass::initialize_trueclass(vm);

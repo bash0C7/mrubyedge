@@ -202,3 +202,16 @@ fn not_eq_without_a_user_defined_double_eq_still_compares_by_identity_test() {
     // Assert
     assert_eq!(run_s("plain_not_equals", code), "false|true");
 }
+
+#[test]
+fn not_eq_on_a_data_class_compares_by_members_test() {
+    let code = r##"
+    Point = Data.define(:x, :y)
+
+    def test_main
+      "#{Point.new(1, 2) != Point.new(1, 2)}|#{Point.new(1, 2) != Point.new(1, 3)}"
+    end
+    "##;
+    // Assert
+    assert_eq!(run_s("not_eq_data", code), "false|true");
+}

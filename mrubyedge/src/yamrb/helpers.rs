@@ -20,7 +20,19 @@ fn call_block(
         Some((id, owner)) => (id, Some(owner)),
         None => (RSym::new("<block>".to_string()), None),
     };
-    push_callinfo(vm, method_id, args.len(), method_owner, return_register);
+    push_callinfo(
+        vm,
+        method_id.clone(),
+        args.len(),
+        method_owner.clone(),
+        return_register,
+    );
+
+    // Record the running method for `super` (see VM::method_frame).
+    let prev_method_frame = match method_owner {
+        Some(owner) => vm.method_frame.replace((method_id, owner)),
+        None => vm.method_frame.take(),
+    };
 
     let old_callinfo = vm.current_callinfo.take();
 
@@ -79,6 +91,7 @@ fn call_block(
     {
         vm.upper.replace(upper.clone());
     }
+    vm.method_frame = prev_method_frame;
 
     match &res {
         Ok(res) => Ok(res.clone()),

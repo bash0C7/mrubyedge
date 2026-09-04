@@ -212,3 +212,28 @@ fn return_block_deeply_nested_c_func() {
         .unwrap();
     assert_eq!(result, 5476);
 }
+
+#[test]
+fn a_plain_return_works_in_a_method_that_takes_a_block() {
+    // The compiler emits OP_RETURN_BLK for a `return` that might be inside
+    // a block, which includes this. With no enclosing block environment it
+    // is an ordinary method return.
+    let code = "
+    def start(&block)
+      if block
+        return block.call('given')
+      end
+      return 'none'
+    end
+
+    [start { |v| v }, start].join(',')
+    ";
+    let binary = mrbc_compile("return_blk_plain_method", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "given,none");
+}

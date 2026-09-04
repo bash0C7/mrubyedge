@@ -79,6 +79,8 @@ pub struct VM {
     pub regs: [Option<Rc<RObject>>; MAX_REGS_SIZE],
     pub current_regs_offset: usize,
     pub current_callinfo: Option<Rc<CALLINFO>>,
+    /// Identity of the Ruby method currently running, for `super` to read when entered through `mrb_funcall`.
+    pub method_frame: Option<(RSym, Rc<RModule>)>,
     /// Argument count for a call entered through `mrb_funcall` or `mrb_call_block`, for OP_ENTER to read.
     pub funcall_argc: Option<usize>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
@@ -305,6 +307,7 @@ impl VM {
             regs,
             current_regs_offset,
             current_callinfo,
+            method_frame: None,
             funcall_argc: None,
             current_breadcrumb,
             kargs,

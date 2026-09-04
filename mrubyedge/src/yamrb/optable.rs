@@ -1166,6 +1166,23 @@ pub(crate) fn do_op_send(
                 vm.current_breadcrumb
                     .replace(upper.expect("should have upper breadcrumb"));
             }
+            // `break` out of a block that a Rust-implemented method yielded
+            // to ends that call with the break value, the way OP_BREAK does
+            // for a Ruby one. Only when this call site is the one that handed
+            // over the block: `yield` reaches the block through Proc#call,
+            // which passes no block of its own, and there the break belongs
+            // to the method that yielded and has to keep unwinding.
+            Err(Error::Break(value)) if blk_index.is_some() => {
+                vm.current_regs()[a as usize].replace(value);
+                vm.exception.take();
+                let cur = vm
+                    .current_breadcrumb
+                    .take()
+                    .expect("send should push breadcrumb");
+                let upper = cur.upper.clone();
+                vm.current_breadcrumb
+                    .replace(upper.expect("should have upper breadcrumb"));
+            }
             Err(e) => {
                 vm.current_regs()[a as usize].replace(Rc::new(RObject::nil()));
                 return Err(e);
@@ -1265,14 +1282,18 @@ pub(crate) fn op_call(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
-    let callinfo = vm
-        .current_callinfo
-        .as_ref()
-        .ok_or_else(|| Error::internal("no current callinfo"))?;
-    let sym_id = callinfo.method_id.name.clone();
-    let owner_module = callinfo
-        .method_owner
-        .clone()
+    let (sym_id, owner_module) = match vm.current_callinfo.as_ref() {
+        Some(callinfo) => (
+            callinfo.method_id.name.clone(),
+            callinfo.method_owner.clone(),
+        ),
+        // Entered through mrb_funcall: the identity is on the VM instead.
+        None => match vm.method_frame.as_ref() {
+            Some((method_id, owner)) => (method_id.name.clone(), Some(owner.clone())),
+            None => return Err(Error::internal("no current callinfo")),
+        },
+    };
+    let owner_module = owner_module
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
     let args = (0..b)
@@ -1652,11 +1673,16 @@ pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_return_blk(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
+
+    // The compiler emits RETURN_BLK for a `return` that might be running
+    // inside a block, which includes a plain `return` in a method that takes
+    // a `&block` parameter. With no enclosing block environment it is an
+    // ordinary method return, as in mruby's own OP_RETURN_BLK.
+    let Some(env) = vm.get_outermost_env() else {
+        return op_return(vm, operand);
+    };
+    let target_irep_id = env.__irep_id;
     let val = vm.get_current_regs_cloned(a)?;
-    let target_irep_id = vm
-        .get_outermost_env()
-        .expect("not found outermost env")
-        .__irep_id;
 
     Err(Error::BlockReturn(target_irep_id, val))
 }

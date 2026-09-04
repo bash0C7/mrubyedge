@@ -213,6 +213,12 @@ pub fn mrb_object_double_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObj
 pub fn mrb_object_not_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let lhs = vm.getself()?;
     let rhs = args[0].clone();
+    // `!=` is `!(self == other)`: a class is free to define its own ==, and
+    // != must ask it too, not fall back to identity behind its back.
+    if matches!(lhs.value, RValue::Instance(_)) {
+        let eq = mrb_funcall(vm, Some(lhs), "==", &[rhs])?;
+        return Ok(RObject::boolean(eq.is_falsy()).to_refcount_assigned());
+    }
     Ok(mrb_object_is_not_equal(vm, lhs, rhs))
 }
 

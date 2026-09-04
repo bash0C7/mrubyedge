@@ -477,6 +477,20 @@ pub(crate) fn consume_expr(
         STOP => {
             op_stop(vm, operand)?;
         }
+
+        // mruby 4.0 (RITE0400) opcodes.
+        RETSELF => {
+            op_retself(vm, operand)?;
+        }
+        RETNIL => {
+            op_retnil(vm, operand)?;
+        }
+        RETTRUE => {
+            op_rettrue(vm, operand)?;
+        }
+        RETFALSE => {
+            op_retfalse(vm, operand)?;
+        }
         _ => {
             unimplemented!("{:?}: Not supported yet", code)
         }
@@ -1672,6 +1686,36 @@ pub(crate) fn op_karg(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
+    do_return(vm, a, None)
+}
+
+// RETNIL/RETTRUE/RETFALSE carry the value in the opcode, not a register.
+// Written after the frame's registers are captured into the environment.
+pub(crate) fn op_return_value(vm: &mut VM, value: Rc<RObject>) -> Result<(), Error> {
+    do_return(vm, 0, Some(value))
+}
+
+// RETSELF: return self. Self is already in R[0].
+pub(crate) fn op_retself(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    op_return(vm, &Fetched::B(0))
+}
+
+// RETNIL: return nil.
+pub(crate) fn op_retnil(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    op_return_value(vm, RObject::nil().to_refcount_assigned())
+}
+
+// RETTRUE: return true.
+pub(crate) fn op_rettrue(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    op_return_value(vm, RObject::boolean(true).to_refcount_assigned())
+}
+
+// RETFALSE: return false.
+pub(crate) fn op_retfalse(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    op_return_value(vm, RObject::boolean(false).to_refcount_assigned())
+}
+
+fn do_return(vm: &mut VM, a: usize, value: Option<Rc<RObject>>) -> Result<(), Error> {
     let old_irep = vm.current_irep.clone();
     let nregs = old_irep.nregs;
     // let no_return = vm.current_callinfo.is_some();
@@ -1685,8 +1729,15 @@ pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
 
     let regs0 = vm.current_regs();
-    if let Some(regs_a) = regs0[a].clone() {
-        regs0[0].replace(regs_a);
+    match value {
+        Some(value) => {
+            regs0[0].replace(value);
+        }
+        None => {
+            if let Some(regs_a) = regs0[a].clone() {
+                regs0[0].replace(regs_a);
+            }
+        }
     }
     // TODO: inspect if this is needed
     // if nregs > 0 && no_return {

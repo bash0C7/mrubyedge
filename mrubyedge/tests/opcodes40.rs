@@ -11,7 +11,7 @@ use mrubyedge::Error;
 use mrubyedge::rite::insn::Fetched::{self, *};
 use mrubyedge::rite::insn::OpCode::{self, *};
 use mrubyedge::yamrb::op::Op;
-use mrubyedge::yamrb::value::RSym;
+use mrubyedge::yamrb::value::{RObject, RSym, RValue};
 use mrubyedge::yamrb::vm::{IREP, VM};
 
 fn irep(
@@ -120,4 +120,105 @@ fn enter_with_n1_runs_without_a_block_test() {
 
     // Assert
     assert_eq!(result, 1);
+}
+
+// `def m; <body>; end; m` with the body handed in as instructions. Returns
+// what the call answered, alongside the VM for anything else to inspect.
+fn call_method(nregs: usize, body: &[(OpCode, Fetched)]) -> (VM, Rc<RObject>) {
+    let method = irep(1, nregs, body, &[], vec![]);
+    let main = irep(
+        0,
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (SSEND, BBB(1, 0, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method],
+    );
+    let mut vm = VM::new_by_raw_irep(main);
+    let result = vm.run().unwrap();
+    (vm, result)
+}
+
+#[test]
+fn retself_returns_the_receiver_test() {
+    // def m; self; end; m == self
+    let method = irep(1, 2, &[(RETSELF, Z)], &[], vec![]);
+    let main = irep(
+        0,
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (SSEND, BBB(1, 0, 0)),
+            (LOADSELF, B(2)),
+            (EQ, B(1)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method],
+    );
+    let mut vm = VM::new_by_raw_irep(main);
+    let result = vm.run().unwrap();
+
+    // Assert
+    assert!(matches!(result.value, RValue::Bool(true)));
+}
+
+#[test]
+fn retself_is_not_the_last_value_computed_test() {
+    // def m; 1; self; end; m == 1
+    let method = irep(1, 2, &[(LOADI_1, B(1)), (RETSELF, Z)], &[], vec![]);
+    let main = irep(
+        0,
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (SSEND, BBB(1, 0, 0)),
+            (LOADI_1, B(2)),
+            (EQ, B(1)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![method],
+    );
+    let mut vm = VM::new_by_raw_irep(main);
+    let result = vm.run().unwrap();
+
+    // Assert
+    assert!(matches!(result.value, RValue::Bool(false)));
+}
+
+#[test]
+fn retnil_returns_nil_test() {
+    let (_, result) = call_method(2, &[(LOADI_1, B(1)), (RETNIL, Z)]);
+
+    // Assert
+    assert!(result.is_nil());
+}
+
+#[test]
+fn rettrue_returns_true_test() {
+    let (_, result) = call_method(2, &[(LOADI_1, B(1)), (RETTRUE, Z)]);
+
+    // Assert
+    assert!(matches!(result.value, RValue::Bool(true)));
+}
+
+#[test]
+fn retfalse_returns_false_test() {
+    let (_, result) = call_method(2, &[(LOADI_1, B(1)), (RETFALSE, Z)]);
+
+    // Assert
+    assert!(matches!(result.value, RValue::Bool(false)));
 }

@@ -102,3 +102,15 @@ fn mrb_module_ancestors(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject
         .collect();
     Ok(RObject::array(ancestors).to_refcount_assigned())
 }
+
+// A method name given as either a Symbol or a String.
+pub(crate) fn method_name_of(obj: &Rc<RObject>, who: &str) -> Result<String, Error> {
+    match &obj.value {
+        RValue::Symbol(sym) => Ok(sym.name.clone()),
+        RValue::String(..) => obj.as_ref().try_into(),
+        _ => Err(Error::RuntimeError(format!(
+            "{} expects a Symbol or String",
+            who
+        ))),
+    }
+}

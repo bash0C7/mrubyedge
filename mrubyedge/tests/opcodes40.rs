@@ -302,3 +302,55 @@ fn send0_reaches_a_method_written_in_rust_test() {
     // Assert
     assert_eq!(result, "3");
 }
+
+#[test]
+fn getidx0_reads_the_first_element_test() {
+    // [5, 6][0]
+    let result = run_main(
+        5,
+        &[
+            (LOADI_5, B(2)),
+            (LOADI_6, B(3)),
+            (ARRAY, BB(2, 2)),
+            (GETIDX0, BB(1, 2)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 5);
+}
+
+#[test]
+fn getidx0_asks_an_object_for_its_own_index_method_test() {
+    // def [](i); 42; end; self[0]
+    let index_method = irep(
+        1,
+        3,
+        &[(ENTER, W(1 << 18)), (LOADI, BB(2, 42)), (RETURN, B(2))],
+        &[],
+        vec![],
+    );
+    let result = run_main(
+        5,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (LOADSELF, B(2)),
+            (GETIDX0, BB(1, 2)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["[]"],
+        vec![index_method],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 42);
+}

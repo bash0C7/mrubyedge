@@ -479,6 +479,9 @@ pub(crate) fn consume_expr(
         }
 
         // mruby 4.0 (RITE0400) opcodes.
+        GETIDX0 => {
+            op_getidx0(vm, operand)?;
+        }
         SSEND0 => {
             op_ssend0(vm, operand)?;
         }
@@ -1031,6 +1034,17 @@ pub(crate) fn op_move(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     do_op_send(vm, 0, None, a, b, c)
+}
+
+// GETIDX0: R[a] = R[b][0], sent through OP_SEND's body so a class with
+// its own [] is asked, with its own register window.
+pub(crate) fn op_getidx0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let recv = vm.get_current_regs_cloned(b as usize)?;
+    let zero = RObject::integer(0).to_refcount_assigned();
+    vm.current_regs()[a as usize].replace(recv);
+    vm.current_regs()[a as usize + 1].replace(zero);
+    do_op_send_with_id(vm, a as usize, None, a, RSym::new("[]".to_string()), 1)
 }
 
 // SSEND0: R[a] = self.send(Syms[b]), no arguments.

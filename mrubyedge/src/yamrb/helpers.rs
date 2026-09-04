@@ -8,6 +8,37 @@ use super::{
     vm::VM,
 };
 
+/// Calls an optional callback method (e.g. `Module#included`), preserving the caller's registers.
+///
+/// # Arguments
+///
+/// * `vm` - The virtual machine instance
+/// * `recv` - The receiver to call the hook on
+/// * `name` - The name of the hook method
+/// * `args` - Array of arguments to pass to the hook
+///
+/// # Returns
+///
+/// Returns `Ok(None)` when the hook is not defined, or the result of the call otherwise.
+pub fn mrb_call_hook(
+    vm: &mut VM,
+    recv: Rc<RObject>,
+    name: &str,
+    args: &[Rc<RObject>],
+) -> Result<Option<Rc<RObject>>, Error> {
+    let binding = recv.singleton_or_this_class(vm);
+    if resolve_method(&binding, name).is_none() {
+        return Ok(None);
+    }
+
+    let window = vm.current_irep.nregs.min(vm.current_regs().len());
+    let saved: Vec<Option<Rc<RObject>>> = vm.current_regs()[..window].to_vec();
+    let res = mrb_funcall(vm, Some(recv), name, args);
+    vm.current_regs()[..window].clone_from_slice(&saved);
+
+    res.map(Some)
+}
+
 fn call_block(
     vm: &mut VM,
     block: RProc,

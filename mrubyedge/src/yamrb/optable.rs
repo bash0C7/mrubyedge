@@ -12,7 +12,11 @@ use crate::yamrb::helpers::mrb_call_inspect;
 use super::prelude::hash::mrb_hash_delete;
 use super::prelude::object::mrb_object_is_equal;
 use super::value::RHashMap;
-use super::{helpers::mrb_funcall, value::*, vm::*};
+use super::{
+    helpers::{mrb_call_hook, mrb_funcall},
+    value::*,
+    vm::*,
+};
 
 // OpCodes of mruby 3.2.0 from mruby/op.h:
 // OPCODE(NOP,        Z)        /* no operation */
@@ -2324,7 +2328,15 @@ pub(crate) fn op_class(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     };
     let parent_module = current_namespace(vm);
     let name = name.name;
-    let klass = vm.define_class(&name, Some(superclass), parent_module.clone());
+
+    // `inherited` fires once, when the class is first defined. Reopening
+    // `class Foo` later is not a new subclass.
+    let is_new = match &parent_module {
+        Some(parent) => !parent.consts.borrow().contains_key(&name),
+        None => !vm.consts.contains_key(&name),
+    };
+
+    let klass = vm.define_class(&name, Some(superclass.clone()), parent_module.clone());
 
     // register constant under parent namespace (if any) or top-level
     let class_value = RObject::class(klass.clone(), vm);
@@ -2338,7 +2350,16 @@ pub(crate) fn op_class(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         vm.consts.insert(name.clone(), class_value.clone());
     }
 
-    vm.current_regs()[a as usize].replace(class_value);
+    vm.current_regs()[a as usize].replace(class_value.clone());
+
+    // `def self.inherited(subclass)` on the superclass. Fired after the
+    // register is written, and through mrb_call_hook so the hook body cannot
+    // clobber it before the class body runs.
+    if is_new {
+        let super_value = RObject::class(superclass, vm);
+        mrb_call_hook(vm, super_value, "inherited", &[class_value])?;
+    }
+
     Ok(())
 }
 

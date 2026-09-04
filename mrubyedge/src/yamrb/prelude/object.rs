@@ -16,6 +16,50 @@ pub(crate) fn initialize_object(vm: &mut VM) {
     vm.builtin_class_table
         .insert("Object", object_class.clone());
 
+    // BasicObject carries almost nothing: a class inheriting from it sees
+    // an empty namespace. Only what dispatch itself needs lives here.
+    let basic_object_class = vm.basic_object_class.clone();
+    let basic_klass = RObject::class(basic_object_class.clone(), vm);
+    vm.consts.insert("BasicObject".to_string(), basic_klass);
+    vm.builtin_class_table
+        .insert("BasicObject", basic_object_class.clone());
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "initialize",
+        Box::new(mrb_object_initialize),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "==",
+        Box::new(mrb_object_double_eq),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "!=",
+        Box::new(mrb_object_not_eq),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "!",
+        Box::new(mrb_object_not),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class.clone(),
+        "equal?",
+        Box::new(mrb_object_equal),
+    );
+    mrb_define_cmethod(
+        vm,
+        basic_object_class,
+        "method_missing",
+        Box::new(mrb_object_method_missing),
+    );
+
     #[cfg(feature = "wasi")]
     {
         mrb_define_cmethod(vm, object_class.clone(), "puts", Box::new(mrb_kernel_puts));
@@ -41,6 +85,13 @@ pub(crate) fn initialize_object(vm: &mut VM) {
         Box::new(mrb_object_double_eq),
     );
     mrb_define_cmethod(vm, object_class.clone(), "!=", Box::new(mrb_object_not_eq));
+    mrb_define_cmethod(vm, object_class.clone(), "!", Box::new(mrb_object_not));
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "equal?",
+        Box::new(mrb_object_equal),
+    );
     mrb_define_cmethod(
         vm,
         object_class.clone(),
@@ -222,6 +273,38 @@ pub fn mrb_object_not_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject
     Ok(mrb_object_is_not_equal(vm, lhs, rhs))
 }
 
+// BasicObject#!: true for nil and false, false for everything else.
+fn mrb_object_not(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let falsy = matches!(this.value, RValue::Nil | RValue::Bool(false));
+    Ok(RObject::boolean(falsy).to_refcount_assigned())
+}
+
+// Object#equal?: identity, not value equality.
+fn mrb_object_equal(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let other = match args.first() {
+        Some(other) => other.clone(),
+        None => {
+            return Err(Error::ArgumentError(
+                "wrong number of arguments (given 0, expected 1)".to_string(),
+            ));
+        }
+    };
+    // Immediates compare by value because each read builds a new object for
+    // them; everything else is the same object only when it is the same
+    // allocation. object_id is left unset on strings, arrays and hashes, so
+    // it cannot decide this.
+    let same = match (&this.value, &other.value) {
+        (RValue::Nil, RValue::Nil) => true,
+        (RValue::Bool(a), RValue::Bool(b)) => a == b,
+        (RValue::Integer(a), RValue::Integer(b)) => a == b,
+        (RValue::Symbol(a), RValue::Symbol(b)) => a == b,
+        _ => Rc::ptr_eq(&this, &other),
+    };
+    Ok(RObject::boolean(same).to_refcount_assigned())
+}
+
 pub fn mrb_object_triple_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let lhs = vm.getself()?;
     let rhs = args[0].clone();
@@ -231,17 +314,23 @@ pub fn mrb_object_triple_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObj
         (RValue::Float(f1), RValue::Float(f2)) => Ok(Rc::new(RObject::boolean(*f1 == *f2))),
         (RValue::Symbol(sym1), RValue::Symbol(sym2)) => Ok(Rc::new(RObject::boolean(sym1 == sym2))),
         (RValue::String(s1, _), RValue::String(s2, _)) => Ok(Rc::new(RObject::boolean(s1 == s2))),
-        (RValue::Class(c1), _) => match &lhs.value {
-            RValue::Class(c2) => Ok(Rc::new(RObject::boolean(c1.sym_id == c2.sym_id))),
-            _ => {
-                let c2 = lhs.get_class(vm);
-                Ok(Rc::new(RObject::boolean(c1.sym_id == c2.sym_id)))
-            }
-        },
+        // `Klass === obj` is `obj.is_a?(Klass)`, which is what `case x when
+        // Hash` compiles to. Modules answer too, following the ancestors.
+        (RValue::Class(c1), _) => {
+            let matched = mrb_is_a(vm, rhs.clone(), c1.clone());
+            Ok(Rc::new(RObject::boolean(matched)))
+        }
+        (RValue::Module(m1), _) => {
+            let matched = mrb_is_a(vm, rhs.clone(), m1.clone());
+            Ok(Rc::new(RObject::boolean(matched)))
+        }
         (RValue::Range(_s, _e, _v), _) => {
             let arg = vec![rhs];
             mrb_funcall(vm, Some(lhs), "include?", &arg)
         }
+        // `when nil` in a case/when is NilClass#===, which is nil == nil.
+        (RValue::Nil, RValue::Nil) => Ok(Rc::new(RObject::boolean(true))),
+        (RValue::Bool(b1), RValue::Bool(b2)) => Ok(Rc::new(RObject::boolean(b1 == b2))),
         // TODO: Implement object id for generic instance
         _ => Ok(Rc::new(RObject::boolean(false))),
     }

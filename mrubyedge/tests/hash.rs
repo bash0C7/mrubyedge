@@ -549,3 +549,17 @@ fn hash_each_key_and_value_test() {
     // Assert
     assert_eq!(run_i("hash_each_half", code), 203);
 }
+
+#[test]
+fn env_is_defined_and_is_a_hash_test() {
+    // ENV is built during the prelude, so anything that panics while filling
+    // it takes the VM down before a line of Ruby runs. The host's variables
+    // are only readable where the target has an environment.
+    let code = "
+    def test_main
+      ENV.is_a?(Hash)
+    end
+    ";
+    // Assert
+    assert!(run_b("env_is_a_hash", code));
+}

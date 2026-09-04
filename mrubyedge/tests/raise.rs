@@ -202,3 +202,106 @@ fn rescue_nest_nest_test() {
         .unwrap();
     assert_eq!(&result, "rescue: Intentional Error 4b");
 }
+
+// A catch handler guards only its own region: begin < pc <= end, the
+// innermost (last declared) one winning, as mruby's catch_handler_find does.
+
+#[test]
+fn raise_outside_begin_is_not_caught_by_a_later_rescue_test() {
+    let code = r#"
+    def test_uncaught
+      raise "boom"
+      begin
+        raise "second"
+      rescue => e
+        "rescued"
+      end
+    end
+    "#;
+    let binary = mrbc_compile("raise_outside_begin_is_not_caught_by_a_later_rescue", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let err = mrb_funcall(&mut vm, None, "test_uncaught", &[]).unwrap_err();
+    assert!(
+        format!("{:?}", err).contains("boom"),
+        "expected the first raise to escape, got {:?}",
+        err
+    );
+}
+
+#[test]
+fn raise_after_a_rescue_block_is_not_caught_by_it_test() {
+    let code = r#"
+    def test_after
+      begin
+        1
+      rescue => e
+        "rescued"
+      end
+      raise "later"
+    end
+    "#;
+    let binary = mrbc_compile("raise_after_a_rescue_block_is_not_caught_by_it", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let err = mrb_funcall(&mut vm, None, "test_after", &[]).unwrap_err();
+    assert!(
+        format!("{:?}", err).contains("later"),
+        "expected the raise to escape, got {:?}",
+        err
+    );
+}
+
+#[test]
+fn the_innermost_rescue_wins_test() {
+    let code = r#"
+    def test_nested
+      begin
+        begin
+          raise "inner"
+        rescue => e
+          "inner:#{e.message}"
+        end
+      rescue => e
+        "outer:#{e.message}"
+      end
+    end
+    "#;
+    let binary = mrbc_compile("the_innermost_rescue_wins", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let result = mrb_funcall(&mut vm, None, "test_nested", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "inner:inner");
+}
+
+#[test]
+fn a_rescue_still_catches_what_is_inside_it_test() {
+    let code = r#"
+    def test_inside
+      begin
+        raise "boom"
+      rescue => e
+        "rescued:#{e.message}"
+      end
+    end
+    "#;
+    let binary = mrbc_compile("a_rescue_still_catches_what_is_inside_it", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let result = mrb_funcall(&mut vm, None, "test_inside", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "rescued:boom");
+}

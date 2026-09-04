@@ -42,6 +42,7 @@ fn irep(
         reps: reps.into_iter().map(Rc::new).collect(),
         lv: None,
         catch_target_pos: Vec::new(),
+        catch_ranges: Vec::new(),
     }
 }
 

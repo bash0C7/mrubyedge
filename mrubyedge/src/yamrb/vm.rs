@@ -242,6 +242,7 @@ impl VM {
             reps: Vec::new(),
             lv: None,
             catch_target_pos: Vec::new(),
+            catch_ranges: Vec::new(),
         };
         Self::new_by_raw_irep(irep)
     }
@@ -537,14 +538,15 @@ impl VM {
         retval
     }
 
+    /// Where to resume after a raise, or None when nothing here protects the raising instruction.
     pub(crate) fn find_next_handler_pos(&mut self) -> Option<usize> {
         let ci = self.pc.get();
-        for p in self.current_irep.catch_target_pos.iter() {
-            if ci < *p {
-                return Some(*p);
-            }
-        }
-        None
+        self.current_irep
+            .catch_ranges
+            .iter()
+            .rev()
+            .find(|range| range.begin < ci && ci <= range.end)
+            .map(|range| range.target)
     }
 
     pub(crate) fn current_regs(&mut self) -> &mut [Option<Rc<RObject>>] {
@@ -833,6 +835,7 @@ fn load_irep_1(reps: &mut [Irep], pos: usize, version: insn::RiteVersion) -> (IR
         reps: Vec::new(),
         lv: None,
         catch_target_pos: Vec::new(),
+        catch_ranges: Vec::new(),
     };
     for sym in irep.syms.iter() {
         irep1
@@ -868,6 +871,13 @@ fn load_irep_1(reps: &mut [Irep], pos: usize, version: insn::RiteVersion) -> (IR
             .find(|(_, op)| op.pos == pos)
             .expect("catch handler mismatch");
         irep1.catch_target_pos.push(i);
+        // The handler's own bounds arrive as byte offsets into the
+        // instruction stream; carry them over as indices into `code`.
+        irep1.catch_ranges.push(CatchRange {
+            begin: code.partition_point(|op| op.pos < ch.start),
+            end: code.partition_point(|op| op.pos < ch.end),
+            target: i,
+        });
     }
     let mut map = RHashMap::default();
     for (reg, name) in irep.lv.iter().enumerate() {
@@ -920,6 +930,15 @@ pub struct IREP {
     pub reps: Vec<Rc<IREP>>,
     pub lv: Option<RHashMap<usize, String>>,
     pub catch_target_pos: Vec<usize>,
+    /// The protected regions this IREP declares, as indices into `code`.
+    pub catch_ranges: Vec<CatchRange>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CatchRange {
+    pub begin: usize,
+    pub end: usize,
+    pub target: usize,
 }
 
 #[derive(Debug, Clone)]

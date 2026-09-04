@@ -33,6 +33,18 @@ pub(crate) fn initialize_enumerable(vm: &mut VM) {
     mrb_define_module_cmethod(
         vm,
         enumerable_module.clone(),
+        "filter",
+        Box::new(mrb_enumerable_select),
+    );
+    mrb_define_module_cmethod(
+        vm,
+        enumerable_module.clone(),
+        "reject",
+        Box::new(mrb_enumerable_reject),
+    );
+    mrb_define_module_cmethod(
+        vm,
+        enumerable_module.clone(),
         "all?",
         Box::new(mrb_enumerable_all),
     );
@@ -235,6 +247,37 @@ fn mrb_enumerable_select(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject
         let block = original_block.clone();
         let result = mrb_call_block(vm, block, None, args, 0)?;
         if result.is_truthy() {
+            mrb_funcall(
+                vm,
+                Some(results_ref.clone()),
+                "push",
+                std::slice::from_ref(&args[0]),
+            )?;
+        }
+        Ok(result)
+    });
+
+    let this = vm.getself()?;
+    let block = rproc_from_rust_block(vm, wrapping_block)?;
+    mrb_funcall(vm, Some(this.clone()), "each", &[block])?;
+    vm.pop_fnblock()?;
+
+    Ok(results)
+}
+
+// Enumerable#reject: the elements the block does *not* pick. `select` with
+// the test inverted; `delete_if` is the destructive sibling.
+fn mrb_enumerable_reject(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let original_block = args
+        .last()
+        .cloned()
+        .ok_or_else(|| Error::ArgumentError("block should be specified".to_string()))?;
+    let results: Rc<RObject> = RObject::array(vec![]).to_refcount_assigned();
+    let results_ref = results.clone();
+    let wrapping_block: RFn = Box::new(move |vm: &mut VM, args: &[Rc<RObject>]| {
+        let block = original_block.clone();
+        let result = mrb_call_block(vm, block, None, args, 0)?;
+        if !result.is_truthy() {
             mrb_funcall(
                 vm,
                 Some(results_ref.clone()),

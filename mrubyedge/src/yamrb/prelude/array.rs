@@ -61,6 +61,7 @@ pub(crate) fn initialize_array(vm: &mut VM) {
         Box::new(mrb_array_include),
     );
     mrb_define_cmethod(vm, array_class.clone(), "&", Box::new(mrb_array_and));
+    mrb_define_cmethod(vm, array_class.clone(), "-", Box::new(mrb_array_minus));
     mrb_define_cmethod(vm, array_class.clone(), "|", Box::new(mrb_array_or));
     mrb_define_cmethod(vm, array_class.clone(), "first", Box::new(mrb_array_first));
     mrb_define_cmethod(vm, array_class.clone(), "last", Box::new(mrb_array_last));
@@ -464,6 +465,21 @@ fn mrb_array_include(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, E
 }
 
 // Array#&: Set intersection - returns a new array containing elements common to both arrays
+// Array#-: Set difference - the elements not present in the other array
+fn mrb_array_minus(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this: Vec<Rc<RObject>> = vm.getself()?.as_ref().try_into()?;
+    let other: Vec<Rc<RObject>> = args[0].as_ref().try_into()?;
+
+    let mut result = Vec::new();
+    for elem in this.iter() {
+        let elem_eq = elem.as_eq_value();
+        if !other.iter().any(|e| e.as_eq_value() == elem_eq) {
+            result.push(elem.clone());
+        }
+    }
+    Ok(Rc::new(RObject::array(result)))
+}
+
 fn mrb_array_and(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this: Vec<Rc<RObject>> = vm.getself()?.as_ref().try_into()?;
     let other: Vec<Rc<RObject>> = args[0].as_ref().try_into()?;

@@ -472,6 +472,12 @@ pub(crate) fn consume_expr(
             op_stop(vm, operand)?;
         }
         // mruby 4.0 (RITE0400)
+        SSEND0 => {
+            op_ssend0(vm, operand)?;
+        }
+        SEND0 => {
+            op_send0(vm, operand)?;
+        }
         RETSELF => {
             op_retself(vm, operand)?;
         }
@@ -990,6 +996,16 @@ pub(crate) fn op_sendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
     do_op_send(vm, a as usize, Some(a as usize + n + k * 2 + 1), a, b, c)
+}
+
+pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    do_op_send(vm, 0, None, a, b, 0)
+}
+
+pub(crate) fn op_send0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    do_op_send(vm, a as usize, None, a, b, 0)
 }
 
 pub(crate) fn do_op_send(

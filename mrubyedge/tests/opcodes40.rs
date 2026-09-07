@@ -514,3 +514,136 @@ fn addilv_on_an_object_without_plus_is_a_no_method_error_test() {
     // Assert
     assert!(matches!(err, Error::NoMethodError(_)), "{:?}", err);
 }
+
+// { |x, y| x + y }
+fn block_adding_two_arguments(id: usize) -> IREP {
+    irep(
+        id,
+        3,
+        &[(ENTER, W(2 << 18)), (ADD, B(1)), (RETURN, B(1))],
+        &[],
+        vec![],
+    )
+}
+
+#[test]
+fn blkcall_calls_the_block_with_the_arguments_test() {
+    // blk = { |x, y| x + y }; blk.call(3, 4)
+    let result = run_main(
+        5,
+        &[
+            (BLOCK, BB(1, 0)),
+            (LOADI_3, B(2)),
+            (LOADI_4, B(3)),
+            (BLKCALL, BB(1, 2)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![block_adding_two_arguments(1)],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn blkcall_on_something_that_is_not_a_proc_is_a_type_error_test() {
+    // 1.call
+    let mut vm = VM::new_by_raw_irep(irep(
+        0,
+        3,
+        &[
+            (LOADI_1, B(1)),
+            (BLKCALL, BB(1, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &[],
+        vec![],
+    ));
+    let err = vm.run().unwrap_err();
+    let err = err.downcast_ref::<Error>().expect("a VM error");
+
+    // Assert
+    assert!(
+        matches!(err, Error::TaggedError("TypeError", _)),
+        "{:?}",
+        err
+    );
+}
+
+// { |a1, ..., a14| a14 }
+fn block_returning_the_last_of_fourteen_arguments(id: usize) -> IREP {
+    irep(
+        id,
+        16,
+        &[(ENTER, W(14 << 18)), (RETURN, B(14))],
+        &[],
+        vec![],
+    )
+}
+
+#[test]
+fn blkcall_passes_fourteen_arguments_test() {
+    // blk = { |a1, ..., a14| a14 }; blk.call(1, ..., 1, 7)  -- 14 arguments, codegen's max for BLKCALL
+    let block = block_returning_the_last_of_fourteen_arguments(1);
+    let mut code = vec![(BLOCK, BB(1, 0))];
+    for reg in 2..=14u8 {
+        code.push((LOADI_1, B(reg)));
+    }
+    code.push((LOADI_7, B(15)));
+    code.push((BLKCALL, BB(1, 14)));
+    code.push((RETURN, B(1)));
+    code.push((STOP, Z));
+    let result = run_main(18, &code, &[], vec![block]);
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 7);
+}
+
+#[test]
+fn break_out_of_a_blkcalled_block_ends_the_yielding_call_test() {
+    // def m; yield 1; 7; end; m { |x| break 5 }
+    let yielder = irep(
+        1,
+        4,
+        &[
+            (ENTER, W(0)),
+            (BLKPUSH, BS(1, 0)),
+            (LOADI_1, B(2)),
+            (BLKCALL, BB(1, 1)),
+            (LOADI_7, B(1)),
+            (RETURN, B(1)),
+        ],
+        &[],
+        vec![],
+    );
+    let breaker = irep(
+        2,
+        3,
+        &[(ENTER, W(1 << 18)), (LOADI_5, B(2)), (BREAK, B(2))],
+        &[],
+        vec![],
+    );
+    let result = run_main(
+        4,
+        &[
+            (TCLASS, B(1)),
+            (METHOD, BB(2, 0)),
+            (DEF, BB(1, 0)),
+            (BLOCK, BB(2, 1)),
+            (SSENDB, BBB(1, 0, 0)),
+            (RETURN, B(1)),
+            (STOP, Z),
+        ],
+        &["m"],
+        vec![yielder, breaker],
+    );
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 5);
+}

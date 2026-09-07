@@ -481,6 +481,9 @@ pub(crate) fn consume_expr(
         SEND0 => {
             op_send0(vm, operand)?;
         }
+        BLKCALL => {
+            op_blkcall(vm, operand)?;
+        }
         RETSELF => {
             op_retself(vm, operand)?;
         }
@@ -1025,6 +1028,21 @@ pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_send0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
     do_op_send(vm, a as usize, None, a, b, 0)
+}
+
+// BLKCALL: R[a] = R[a].call(R[a+1],...,R[a+b]), what `yield` compiles to.
+// codegen.c emits it only for `nk == 0 && n < 15`, so b always fits the
+// argument nibble.
+pub(crate) fn op_blkcall(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let block = vm.get_current_regs_cloned(a as usize)?;
+    if !matches!(block.value, RValue::Proc(_)) {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "wrong type (expected Proc)".to_string(),
+        ));
+    }
+    do_op_send_with_id(vm, a as usize, None, a, RSym::new("call".to_string()), b)
 }
 
 pub(crate) fn do_op_send(

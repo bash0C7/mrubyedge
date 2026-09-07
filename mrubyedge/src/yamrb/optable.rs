@@ -475,6 +475,9 @@ pub(crate) fn consume_expr(
         GETIDX0 => {
             op_getidx0(vm, operand)?;
         }
+        MATCHERR => {
+            op_matcherr(vm, operand)?;
+        }
         SSEND0 => {
             op_ssend0(vm, operand)?;
         }
@@ -830,6 +833,19 @@ pub(crate) fn op_getidx0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     vm.current_regs()[a as usize].replace(recv);
     vm.current_regs()[a as usize + 1].replace(zero);
     do_op_send_with_id(vm, a as usize, None, a, RSym::new("[]".to_string()), 1)
+}
+
+// MATCHERR: raise NoMatchingPatternError unless R[a].
+pub(crate) fn op_matcherr(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let value = vm.get_current_regs_cloned(a)?;
+    if value.is_truthy() {
+        return Ok(());
+    }
+    Err(Error::TaggedError(
+        "NoMatchingPatternError",
+        "pattern not matched".to_string(),
+    ))
 }
 
 pub(crate) fn op_setidx(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

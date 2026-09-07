@@ -472,6 +472,9 @@ pub(crate) fn consume_expr(
             op_stop(vm, operand)?;
         }
         // mruby 4.0 (RITE0400)
+        GETIDX0 => {
+            op_getidx0(vm, operand)?;
+        }
         SSEND0 => {
             op_ssend0(vm, operand)?;
         }
@@ -804,6 +807,16 @@ pub(crate) fn op_getidx(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
+// GETIDX0: R[a] = R[b][0], sent as `[]` so a class with its own [] is asked.
+pub(crate) fn op_getidx0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let recv = vm.get_current_regs_cloned(b as usize)?;
+    let zero = RObject::integer(0).to_refcount_assigned();
+    vm.current_regs()[a as usize].replace(recv);
+    vm.current_regs()[a as usize + 1].replace(zero);
+    do_op_send_with_id(vm, a as usize, None, a, RSym::new("[]".to_string()), 1)
+}
+
 pub(crate) fn op_setidx(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
     let recv = vm.get_current_regs_cloned(a)?;
@@ -1016,10 +1029,23 @@ pub(crate) fn do_op_send(
     b: u8,
     c: u8,
 ) -> Result<(), Error> {
+    let method_id = vm.current_irep.syms[b as usize].clone();
+    do_op_send_with_id(vm, recv_index, blk_index, a, method_id, c)
+}
+
+// The body of OP_SEND, for a method named directly rather than looked up by
+// register. GETIDX0, BLKCALL and the 4.0 math opcodes call in here.
+pub(crate) fn do_op_send_with_id(
+    vm: &mut VM,
+    recv_index: usize,
+    blk_index: Option<usize>,
+    a: u8,
+    method_id: RSym,
+    c: u8,
+) -> Result<(), Error> {
     let mut n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
 
-    let method_id = vm.current_irep.syms[b as usize].clone();
     if &method_id.name == "__debug__vm_info" {
         // Special debug method to dump VM info
         vm.debug_dump_to_stdout(32);

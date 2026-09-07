@@ -471,6 +471,19 @@ pub(crate) fn consume_expr(
         STOP => {
             op_stop(vm, operand)?;
         }
+        // mruby 4.0 (RITE0400)
+        RETSELF => {
+            op_retself(vm, operand)?;
+        }
+        RETNIL => {
+            op_retnil(vm, operand)?;
+        }
+        RETTRUE => {
+            op_rettrue(vm, operand)?;
+        }
+        RETFALSE => {
+            op_retfalse(vm, operand)?;
+        }
         _ => {
             unimplemented!("{:?}: Not supported yet", code)
         }
@@ -1433,6 +1446,28 @@ pub(crate) fn op_karg(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
+    let value = vm.current_regs()[a].clone();
+    do_return(vm, value)
+}
+
+pub(crate) fn op_retself(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    let value = vm.current_regs()[0].clone();
+    do_return(vm, value)
+}
+
+pub(crate) fn op_retnil(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    do_return(vm, Some(RObject::nil().to_refcount_assigned()))
+}
+
+pub(crate) fn op_rettrue(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    do_return(vm, Some(RObject::boolean(true).to_refcount_assigned()))
+}
+
+pub(crate) fn op_retfalse(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
+    do_return(vm, Some(RObject::boolean(false).to_refcount_assigned()))
+}
+
+fn do_return(vm: &mut VM, value: Option<Rc<RObject>>) -> Result<(), Error> {
     let old_irep = vm.current_irep.clone();
     let nregs = old_irep.nregs;
     // let no_return = vm.current_callinfo.is_some();
@@ -1445,8 +1480,8 @@ pub(crate) fn op_return(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
 
     let regs0 = vm.current_regs();
-    if let Some(regs_a) = regs0[a].clone() {
-        regs0[0].replace(regs_a);
+    if let Some(value) = value {
+        regs0[0].replace(value);
     }
     // TODO: inspect if this is needed
     // if nregs > 0 && no_return {

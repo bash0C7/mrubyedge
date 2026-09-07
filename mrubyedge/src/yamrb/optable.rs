@@ -493,6 +493,12 @@ pub(crate) fn consume_expr(
         RETFALSE => {
             op_retfalse(vm, operand)?;
         }
+        ADDILV => {
+            op_addilv(vm, operand)?;
+        }
+        SUBILV => {
+            op_subilv(vm, operand)?;
+        }
         _ => {
             unimplemented!("{:?}: Not supported yet", code)
         }
@@ -1674,6 +1680,36 @@ pub(crate) fn op_subi(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     };
     vm.current_regs()[a as usize].replace(result.to_refcount_assigned());
     Ok(())
+}
+
+// ADDILV/SUBILV: R[a] = R[a] +/- c for an Integer or Float; anything else is sent `+`/`-` with c.
+fn math_immediate_to_local(vm: &mut VM, operand: &Fetched, add: bool) -> Result<(), Error> {
+    let (a, b, c) = operand.as_bbb()?;
+    let a = a as usize;
+    let amount = if add { c as i64 } else { -(c as i64) };
+    let value = vm.get_current_regs_cloned(a)?;
+    let result = match &value.value {
+        RValue::Integer(n) => RObject::integer(n + amount).to_refcount_assigned(),
+        RValue::Float(n) => RObject::float(n + amount as f64).to_refcount_assigned(),
+        _ => {
+            // Other receivers are sent the method; the call runs in the window ops.h reserves at R[b].
+            let arg = RObject::integer(c as i64).to_refcount_assigned();
+            vm.current_regs_offset += b as usize;
+            let res = mrb_funcall(vm, Some(value), if add { "+" } else { "-" }, &[arg]);
+            vm.current_regs_offset -= b as usize;
+            res?
+        }
+    };
+    vm.current_regs()[a].replace(result);
+    Ok(())
+}
+
+pub(crate) fn op_addilv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    math_immediate_to_local(vm, operand, true)
+}
+
+pub(crate) fn op_subilv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    math_immediate_to_local(vm, operand, false)
 }
 
 pub(crate) fn op_mul(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

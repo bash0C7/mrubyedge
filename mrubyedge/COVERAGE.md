@@ -8,6 +8,17 @@ A list of currently supported classes and methods, based on the implementations 
 > - `(alias: x)` — also available under this name
 > - `[feature: xxx]` — requires the corresponding Cargo feature flag
 
+## Bytecode: mruby 3.x (RITE0300) and mruby 4.0 (RITE0400)
+
+The loader picks the opcode table from the major version in the RITE header, so chunks from mruby 3.x and from mruby 4.0 (mruby-compiler2, PicoRuby's mrbc) both run; any other version is refused by `rite::load`. See `docs/table.html` for the per-opcode status under either numbering.
+
+The opcodes mruby 4.0 added: `GETIDX0`, `MATCHERR`, `SSEND0`, `SEND0`, `BLKCALL`, `RETSELF`, `RETNIL`, `RETTRUE`, `RETFALSE`, `ADDILV`, `SUBILV`, `TDEF`, `SDEF`; `ENTER` reads the 24-bit flags, including `&nil` (a method refusing a block). `LOADTRUE`/`LOADFALSE`/`LOADI8` are 3.x's `LOADT`/`LOADF`/`LOADI` renamed.
+
+| Note | |
+|---|---|
+| `MATCHERR` | raises `NoMatchingPatternError`; the rest of pattern matching (`deconstruct`, `deconstruct_keys`) is not provided, so only value patterns in `case/in` run end to end |
+| tests | `tests/opcodes40.rs` (hand-built IREPs, one per opcode) and `tests/fixtures/mruby40.mrb` (a chunk compiled by mruby-compiler2) |
+
 ---
 
 ## Object (base of all classes)
@@ -75,6 +86,7 @@ Exception
     ├── TypeError
     ├── ArgumentError
     ├── RangeError
+    ├── NoMatchingPatternError
     ├── ZeroDivisionError
     ├── NotImplementedError
     ├── SecurityError

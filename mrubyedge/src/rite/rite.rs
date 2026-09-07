@@ -7,6 +7,7 @@ use core::ffi::CStr;
 use core::mem;
 use std::ffi::CString;
 
+use super::insn::RiteVersion;
 use super::marker::*;
 
 use simple_endian::{u16be, u32be};
@@ -24,6 +25,7 @@ pub enum PoolValue {
 #[derive(Debug, Default)]
 pub struct Rite<'a> {
     pub binary_header: RiteBinaryHeader,
+    pub version: RiteVersion,
     pub irep_header: SectionIrepHeader,
     pub irep: Vec<Irep<'a>>,
     pub lvar: Option<LVar>,
@@ -86,6 +88,8 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
         return Err(Error::TooShort);
     }
     let binary_header = RiteBinaryHeader::from_bytes(&head[0..binheader_size])?;
+    // mruby 3.x (RITE0300) and 4.0 (RITE0400) share the container but not the opcode table.
+    rite.version = RiteVersion::from_major(&binary_header.major_version)?;
     rite.binary_header = binary_header;
     size -= binheader_size;
     head = &head[binheader_size..];

@@ -109,3 +109,24 @@ fn a_chunk_of_an_unknown_format_version_is_refused_test() {
         assert!(matches!(err, mrubyedge::rite::Error::UnsupportedVersion(m) if &m == major));
     }
 }
+
+#[test]
+fn a_chunk_whose_pool_holds_a_bignum_reads_the_entries_after_it_test() {
+    let code = r#"
+    big = 123456789012345678901234567890
+    tail = "after"
+    tail
+    "#;
+    let binary = mrbc_compile("bignum", code);
+
+    let rite = mrubyedge::rite::load(&binary).unwrap();
+
+    let irep = &rite.irep[0];
+    use mrubyedge::rite::PoolValue;
+    assert!(irep.pool.iter().any(|p| matches!(p, PoolValue::BigInt(_))));
+    assert!(
+        irep.pool.iter().any(
+            |p| matches!(p, PoolValue::Str(s) | PoolValue::SStr(s) if s.to_bytes() == b"after")
+        )
+    );
+}

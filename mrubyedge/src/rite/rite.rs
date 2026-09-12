@@ -244,9 +244,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                 }
                 7 => {
                     // IREP_TT_BIGINT: Big integer (not yet fully supported)
-                    let data = &head[cur..cur + 2];
-                    let bigint_len = be16_to_u16([data[0], data[1]]) as usize;
-                    cur += 2;
+                    let bigint_len = head[cur] as usize + 2;
                     let bigint_data = head[cur..cur + bigint_len].to_vec();
                     pool.push(PoolValue::BigInt(bigint_data));
                     cur += bigint_len;

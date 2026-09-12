@@ -1,6 +1,7 @@
 // Rubyのソースを1本コンパイルして、その.mrbが使っているopcodeを数える。
 //
 //   cargo run --example opcode_histogram -- path/to/a.rb
+//   cargo run --example opcode_histogram -- path/to/a.mrb
 //
 // RITE0400の全命令をテストで踏めているかを測るための計器。**途中でデコードが
 // 崩れたらその場で言う。** 黙って数え落とすと、網羅したつもりの穴が残る。
@@ -12,12 +13,18 @@ use mrubyedge::rite::insn;
 fn main() {
     let path = std::env::args()
         .nth(1)
-        .expect("usage: opcode_histogram <file.rb>");
-    let code = std::fs::read_to_string(&path).expect("cannot read source");
-
-    let binary = unsafe {
-        let mut ctx = mruby_compiler2_sys::MRubyCompiler2Context::new();
-        ctx.compile(&code).expect("compile failed")
+        .expect("usage: opcode_histogram <file.rb|file.mrb>");
+    // **.mrbはそのまま読む。** ほかのコンパイラが焼いたチャンクを測るための口。
+    // 「このコンパイラからは出ない」と「どのコンパイラからも出ない」は別物なので、
+    // 焼いたあとのものを直接見られる必要がある。
+    let binary = if path.ends_with(".mrb") {
+        std::fs::read(&path).expect("cannot read chunk")
+    } else {
+        let code = std::fs::read_to_string(&path).expect("cannot read source");
+        unsafe {
+            let mut ctx = mruby_compiler2_sys::MRubyCompiler2Context::new();
+            ctx.compile(&code).expect("compile failed")
+        }
     };
     let rite = rite::load(&binary).expect("load failed");
 

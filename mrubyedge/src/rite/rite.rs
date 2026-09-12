@@ -229,7 +229,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                     let data = &head[cur..cur + 8];
                     let mut bytes = [0u8; 8];
                     bytes.copy_from_slice(data);
-                    let intval = i64::from_le_bytes(bytes);
+                    let intval = i64::from_be_bytes(bytes);
                     pool.push(PoolValue::Int64(intval));
                     cur += 8;
                 }

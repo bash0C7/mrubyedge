@@ -300,3 +300,31 @@ fn integer_add_float_test() {
     let result_float: f64 = result.as_ref().try_into().unwrap();
     assert_eq!(result_float, 7.5);
 }
+
+#[test]
+fn integer_wider_than_32_bits_test() {
+    let code = "
+n = 4294967296123
+n
+    ";
+    let binary = mrbc_compile("int64", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_int: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result_int, 4294967296123);
+}
+
+#[test]
+fn integer_wider_than_32_bits_negative_test() {
+    let code = "
+n = -4294967296123
+n
+    ";
+    let binary = mrbc_compile("int64neg", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_int: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result_int, -4294967296123);
+}

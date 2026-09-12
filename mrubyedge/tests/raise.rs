@@ -202,8 +202,6 @@ fn rescue_nest_nest_test() {
     assert_eq!(&result, "rescue: Intentional Error 4b");
 }
 
-// A bare `rescue => e` matches StandardError via is_a?, which is exactly
-// what op_rescue checks; NoMatchingPatternError must answer true to it.
 #[test]
 fn no_matching_pattern_error_is_a_standard_error_test() {
     let code = "

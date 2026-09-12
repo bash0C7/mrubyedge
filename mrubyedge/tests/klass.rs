@@ -343,8 +343,6 @@ Widget.build
 
 #[test]
 fn a_method_defined_past_the_symbol_limit_test() {
-    // Up to 255 symbols the compiler folds the definition into TDEF; past that
-    // it emits TCLASS, METHOD and DEF instead.
     let code = r#"
 [1].each { |q0| q0 }
 [1].each { |q1| q1 }

@@ -406,8 +406,6 @@ impl VM {
                 let operand = insn::Fetched::B(0);
                 let mut retreg = None;
                 if let Some(pos) = self.find_handler_pos(None) {
-                    // The handler runs as ordinary code; EXCEPT picks the
-                    // exception up from here.
                     self.pc.set(pos);
                     unwinding = false;
                     continue;
@@ -522,9 +520,6 @@ impl VM {
     }
 
     pub(crate) fn find_handler_pos(&self, type_: Option<u8>) -> Option<usize> {
-        // pc already points at the instruction after the one that raised, so the
-        // range is half-open the other way round: begin < pc <= end. The innermost
-        // handler is the one written last.
         let pc = self.pc.get();
         self.current_irep
             .catch_handlers

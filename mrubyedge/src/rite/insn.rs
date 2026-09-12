@@ -328,8 +328,6 @@ pub enum OpCode {
 
 use self::OpCode::*;
 
-// LOADI8/LOADTRUE/LOADFALSE are 3.x's LOADI/LOADT/LOADF renamed, so they map onto the same
-// variants and a dump shows the 3.x names.
 #[rustfmt::skip]
 const ENUM_TABLE: [OpCode; OpCode::NumberOfOpcode as usize] = [
     NOP, MOVE, LOADL, LOADI, LOADINEG, LOADI__1, LOADI_0, LOADI_1, LOADI_2, LOADI_3, LOADI_4,

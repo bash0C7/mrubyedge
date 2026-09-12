@@ -13,7 +13,7 @@
 //!
 //! Basic initialization follows the pattern shown in `examples/newvm.rs`:
 //!
-//! ```
+//! ```no_run
 //! use mrubyedge::yamrb::{op, vm, value::RSym};
 //! use mrubyedge::rite::insn::{Fetched, OpCode};
 //!

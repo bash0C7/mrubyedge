@@ -172,7 +172,6 @@ two { |a, b| a + b }
 
 #[test]
 fn blkcall_passes_fourteen_arguments_test() {
-    // codegen emits BLKCALL only while the argument count fits the nibble (n < 15).
     let code = "
 def many
   yield 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14

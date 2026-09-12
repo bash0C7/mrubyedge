@@ -488,7 +488,6 @@ pub(crate) fn consume_expr(
         STOP => {
             op_stop(vm, operand)?;
         }
-        // mruby 4.0 (RITE0400)
         GETIDX0 => {
             op_getidx0(vm, operand)?;
         }
@@ -684,7 +683,6 @@ pub(crate) fn op_loadf(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_getgv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
     let val = vm.current_irep.syms[b as usize].clone();
-    // Ruby reads a global that was never assigned as nil.
     let val = match vm.globals.get(&val.name) {
         Some(val) => val.clone(),
         None => RObject::nil().to_refcount_assigned(),
@@ -708,7 +706,6 @@ pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let m2 = ((b >> 5) & 0x1f) as usize;
     let lv = (b & 0xf) as usize;
 
-    // The arguments of the frame this super belongs to start one past its self.
     let base = if lv == 0 {
         vm.current_regs_offset + 1
     } else {
@@ -871,7 +868,6 @@ pub(crate) fn op_setcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let val = vm.get_current_regs_cloned(a as usize)?;
     let this = vm.getself()?;
     let mut klass = this.get_class(vm);
-    // An assignment finds the variable in a superclass before making a new one.
     let mut target = klass.clone();
     loop {
         if klass.module.cvars.borrow().contains_key(&key) {
@@ -1197,8 +1193,6 @@ pub(crate) fn op_rescue(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             "class or module required for rescue clause".to_string(),
         ));
     };
-    // An ensure block reaches here on the way out of a body that did not raise,
-    // and then R[a] holds the nil EXCEPT left behind.
     let is_rescued = match &val.value {
         RValue::Exception(exc) => {
             let etype = exc.error_type.borrow();
@@ -1273,7 +1267,6 @@ pub(crate) fn op_blkcall(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             "wrong type (expected Proc)".to_string(),
         ));
     }
-    // codegen emits BLKCALL only for nk == 0 && n < 15, so b fits the argument nibble.
     do_op_send_with_id(vm, a as usize, None, a, RSym::new("call".to_string()), b)
 }
 
@@ -1510,7 +1503,6 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .clone()
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
-    // An argument count of 15 means ARGARY packed them into one array.
     let args = if (b & 0x0f) == 0x0f {
         let packed = vm.get_current_regs_cloned(a as usize + 1)?;
         match &packed.value {
@@ -1526,7 +1518,6 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             .collect::<Vec<_>>()
     };
     let b = args.len() as u16;
-    // The callee reads its arguments from the registers after the receiver.
     for (i, arg) in args.iter().enumerate() {
         vm.current_regs()[a as usize + 1 + i].replace(arg.clone());
     }
@@ -1619,7 +1610,6 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_w()?;
     let argc = vm.current_callinfo.as_ref().map_or(0, |ci| ci.n_args);
     let arg_info = EnterArgInfo::from(a);
-    // proc.h MRB_ASPEC_NOBLOCK: n1 (bit 23) refuses a block argument.
     let has_block = vm
         .current_callinfo
         .as_ref()
@@ -1953,7 +1943,6 @@ fn math_immediate_to_local(vm: &mut VM, operand: &Fetched, add: bool) -> Result<
         RValue::Integer(n) => RObject::integer(n + amount).to_refcount_assigned(),
         RValue::Float(n) => RObject::float(n + amount as f64).to_refcount_assigned(),
         _ => {
-            // Other receivers are sent the method; the call runs in the window ops.h reserves at R[b].
             let arg = RObject::integer(c as i64).to_refcount_assigned();
             vm.current_regs_offset += b as usize;
             let res = mrb_funcall(vm, Some(value), if add { "+" } else { "-" }, &[arg]);

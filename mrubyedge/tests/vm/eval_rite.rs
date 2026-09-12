@@ -205,8 +205,6 @@ pass(1)
     ";
     let binary = mrbc_compile("unimplemented", code);
 
-    // GETSV takes the same two operands as MOVE and mruby's compiler never
-    // emits it, so swapping the opcode leaves the instruction stream aligned.
     let offset = {
         let rite = mrubyedge::rite::load(&binary).unwrap();
         let mut found = None;

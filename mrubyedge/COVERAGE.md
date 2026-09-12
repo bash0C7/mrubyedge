@@ -17,7 +17,6 @@ The opcodes mruby 4.0 added over 3.x: `GETIDX0`, `MATCHERR`, `SSEND0`, `SEND0`, 
 | Note | |
 |---|---|
 | `MATCHERR` | raises `NoMatchingPatternError`; the rest of pattern matching (`deconstruct`, `deconstruct_keys`) is not provided, so only value patterns in `case/in` run end to end |
-| tests | the whole test suite compiles its Ruby with mruby-compiler2; `tests/opcodes40.rs` covers the added opcodes one snippet at a time and then a whole chunk |
 
 ---
 

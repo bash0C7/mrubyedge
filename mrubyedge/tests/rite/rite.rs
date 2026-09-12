@@ -85,9 +85,15 @@ fn test_rite_parse_pool_values() {
     let has_string = irep
         .pool
         .iter()
-        .any(|p| matches!(p, PoolValue::Str(_) | PoolValue::SStr(_)));
-    let has_float = irep.pool.iter().any(|p| matches!(p, PoolValue::Float(_)));
-    let has_int64 = irep.pool.iter().any(|p| matches!(p, PoolValue::Int64(_)));
+        .any(|p| matches!(p, PoolValue::Str(s) | PoolValue::SStr(s) if s.as_slice() == b"string"));
+    let has_float = irep
+        .pool
+        .iter()
+        .any(|p| matches!(p, PoolValue::Float(f) if *f == 3.14));
+    let has_int64 = irep
+        .pool
+        .iter()
+        .any(|p| matches!(p, PoolValue::Int64(i) if *i == 9999999999));
 
     assert!(has_string, "Should have string in pool");
     assert!(has_float, "Should have float in pool");
@@ -98,8 +104,6 @@ fn test_rite_parse_pool_values() {
 fn a_chunk_of_an_unknown_format_version_is_refused_test() {
     let binary = mrbc_compile("compiled", "1 + 1");
 
-    // Bytes 4 and 5 of the header are the major version. mruby 3.x chunks are
-    // refused too: the opcode numbering is not the one this VM decodes.
     for major in [b"02", b"03", b"05"] {
         let mut chunk = binary.clone();
         chunk[4..6].copy_from_slice(major);
@@ -154,7 +158,6 @@ fn a_chunk_from_a_newer_minor_version_is_refused_test() {
     let err = mrubyedge::rite::load(&chunk).unwrap_err();
     assert!(matches!(err, mrubyedge::rite::Error::InvalidFormat));
 
-    // An older or equal minor version stays readable.
     let mut chunk = binary.clone();
     chunk[6..8].copy_from_slice(b"00");
     assert!(mrubyedge::rite::load(&chunk).is_ok());
@@ -180,8 +183,6 @@ fn a_chunk_followed_by_other_bytes_reads_only_the_chunk_test() {
 fn a_chunk_whose_sections_run_out_before_the_end_marker_still_reads_test() {
     let binary = mrbc_compile("compiled", "1 + 1");
 
-    // The END section is the last eight bytes; relabel it so the scan meets an
-    // ident it does not know while the IREP section before it is already read.
     let mut chunk = binary.clone();
     let end = chunk.len() - 8;
     chunk[end..end + 4].copy_from_slice(b"XXXX");

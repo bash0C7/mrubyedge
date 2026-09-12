@@ -193,3 +193,51 @@ fn test_eval_multiple_rites_with_modules() {
     let result_str: String = result.as_ref().try_into().unwrap();
     assert_eq!(result_str, "Hello from Alice");
 }
+
+#[test]
+fn an_opcode_the_vm_does_not_run_is_an_error_not_a_crash_test() {
+    let code = "
+def pass(n)
+  m = n
+  m
+end
+pass(1)
+    ";
+    let binary = mrbc_compile("unimplemented", code);
+
+    // GETSV takes the same two operands as MOVE and mruby's compiler never
+    // emits it, so swapping the opcode leaves the instruction stream aligned.
+    let offset = {
+        let rite = mrubyedge::rite::load(&binary).unwrap();
+        let mut found = None;
+        for irep in rite.irep.iter() {
+            let base = irep.insn.as_ptr() as usize - binary.as_ptr() as usize;
+            let mut cur = 0usize;
+            let mut s: &[u8] = irep.insn;
+            while !s.is_empty() {
+                let before = s.len();
+                let Ok((op, _f, _e)) = mrubyedge::rite::insn::fetch_next(&mut s) else {
+                    break;
+                };
+                if matches!(op, mrubyedge::rite::insn::OpCode::MOVE) {
+                    found = Some(base + cur);
+                    break;
+                }
+                cur += before - s.len();
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        found.expect("the chunk should hold a MOVE")
+    };
+
+    let mut chunk = binary.clone();
+    chunk[offset] = 23;
+
+    let mut rite = mrubyedge::rite::load(&chunk).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    assert!(vm.run().is_err());
+}

@@ -529,7 +529,10 @@ pub(crate) fn consume_expr(
             op_subilv(vm, operand)?;
         }
         _ => {
-            unimplemented!("{:?}: Not supported yet", code)
+            return Err(Error::RuntimeError(format!(
+                "{:?} is not implemented",
+                code
+            )));
         }
     }
     Ok(())

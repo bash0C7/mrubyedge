@@ -35,6 +35,14 @@ fn main() {
                 broken += 1;
                 break;
             };
+            // EXT1/EXT2/EXT3は後続命令のオペランド幅を広げる前置き。
+            // FETCH_TABLEはそれを解釈しないので、ここから先は誤読になる。
+            // 黙って数え続けると嘘の数字が出るので、止めて申告する。
+            if matches!(op, OpCode::EXT1 | OpCode::EXT2 | OpCode::EXT3) {
+                eprintln!("irep {i} +{at}: {op:?} の後はデコードできない");
+                broken += 1;
+                break;
+            }
             if FETCH_TABLE[byte as usize](&mut insns).is_err() {
                 eprintln!("irep {i} +{at}: cannot fetch operands of {op:?}");
                 broken += 1;

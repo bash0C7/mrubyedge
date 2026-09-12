@@ -169,6 +169,8 @@ pub(crate) fn consume_expr(
     len: usize,
 ) -> Result<(), Error> {
     use crate::rite::insn::OpCode::*;
+    #[cfg(feature = "opcode-coverage")]
+    crate::yamrb::coverage::record(code);
     match code {
         NOP => {
             op_nop(vm, operand)?;

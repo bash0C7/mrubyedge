@@ -67,6 +67,15 @@ impl Breadcrumb {
     }
 }
 
+// VMが1つ落ちるたびに、そのプロセスが踏んだopcodeを書き出す。累積なので
+// 最後の1回に全部入る。
+#[cfg(feature = "opcode-coverage")]
+impl Drop for VM {
+    fn drop(&mut self) {
+        crate::yamrb::coverage::flush();
+    }
+}
+
 pub struct VM {
     pub irep: Rc<IREP>,
 

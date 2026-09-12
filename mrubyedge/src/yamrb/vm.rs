@@ -15,7 +15,7 @@ use super::{op, optable::*};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ENGINE: &str = "mruby/edge";
 
-const MAX_REGS_SIZE: usize = 256;
+const INITIAL_REGS_SIZE: usize = 256;
 
 #[derive(Debug, Clone)]
 pub enum TargetContext {
@@ -74,7 +74,7 @@ pub struct VM {
     pub bytecode: Vec<u8>,
     pub current_irep: Rc<IREP>,
     pub pc: Cell<usize>,
-    pub regs: [Option<Rc<RObject>>; MAX_REGS_SIZE],
+    pub regs: Vec<Option<Rc<RObject>>>,
     pub current_regs_offset: usize,
     pub current_callinfo: Option<Rc<CALLINFO>>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
@@ -251,7 +251,7 @@ impl VM {
         let bytecode = Vec::new();
         let current_irep = irep.clone();
         let pc = Cell::new(0);
-        let regs: [Option<Rc<RObject>>; MAX_REGS_SIZE] = [const { None }; MAX_REGS_SIZE];
+        let regs: Vec<Option<Rc<RObject>>> = vec![None; INITIAL_REGS_SIZE];
         let current_regs_offset = 0;
         let current_callinfo = None;
         let current_breadcrumb = Some(Rc::new(Breadcrumb {
@@ -535,6 +535,10 @@ impl VM {
     }
 
     pub(crate) fn current_regs(&mut self) -> &mut [Option<Rc<RObject>>] {
+        let needed = self.current_regs_offset + self.current_irep.nregs;
+        if self.regs.len() < needed {
+            self.regs.resize(needed, None);
+        }
         &mut self.regs[self.current_regs_offset..]
     }
 
@@ -795,14 +799,13 @@ impl VM {
 }
 
 fn interpret_insn(mut insns: &[u8]) -> Vec<Op> {
-    let mut pos: usize = 0;
+    let total = insns.len();
     let mut ops = Vec::new();
     while !insns.is_empty() {
-        let op = insns[0];
-        let opcode: insn::OpCode = op.try_into().unwrap();
-        let fetched = insn::FETCH_TABLE[op as usize](&mut insns).unwrap();
-        ops.push(Op::new(opcode, fetched, pos, 1 + fetched.len()));
-        pos += 1 + fetched.len();
+        let pos = total - insns.len();
+        let (opcode, fetched, _ext) = insn::fetch_next(&mut insns).unwrap();
+        let len = (total - insns.len()) - pos;
+        ops.push(Op::new(opcode, fetched, pos, len));
     }
     ops
 }

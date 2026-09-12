@@ -1092,9 +1092,9 @@ pub(crate) fn do_op_send(
     vm: &mut VM,
     recv_index: usize,
     blk_index: Option<usize>,
-    a: u8,
-    b: u8,
-    c: u8,
+    a: u16,
+    b: u16,
+    c: u16,
 ) -> Result<(), Error> {
     let method_id = vm.current_irep.syms[b as usize].clone();
     do_op_send_with_id(vm, recv_index, blk_index, a, method_id, c)
@@ -1104,9 +1104,9 @@ pub(crate) fn do_op_send_with_id(
     vm: &mut VM,
     recv_index: usize,
     blk_index: Option<usize>,
-    a: u8,
+    a: u16,
     method_id: RSym,
-    c: u8,
+    c: u16,
 ) -> Result<(), Error> {
     let mut n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;

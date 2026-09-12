@@ -274,6 +274,9 @@ pub(crate) fn consume_expr(
         GETMCNST => {
             op_getmcnst(vm, operand)?;
         }
+        SETMCNST => {
+            op_setmcnst(vm, operand)?;
+        }
         // SETMCNST => {
         //     // op_setmcnst(vm, &operand)?;
         // }
@@ -822,6 +825,26 @@ pub(crate) fn op_getmcnst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
 
     Err(Error::NameError(name.clone()))
+}
+
+pub(crate) fn op_setmcnst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // R[a+1]::Syms[b] = R[a]
+    let (a, b) = operand.as_bb()?;
+    let val = vm.get_current_regs_cloned(a as usize)?;
+    let recv = vm.get_current_regs_cloned(a as usize + 1)?;
+    let name = vm.current_irep.syms[b as usize].name.clone();
+    let module = match &recv.value {
+        RValue::Class(klass) => klass.module.clone(),
+        RValue::Module(module) => module.clone(),
+        _ => {
+            return Err(Error::TaggedError(
+                "TypeError",
+                "constant assignment needs a class or module".to_string(),
+            ));
+        }
+    };
+    module.consts.borrow_mut().insert(name, val);
+    Ok(())
 }
 
 pub(crate) fn op_getupvar(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

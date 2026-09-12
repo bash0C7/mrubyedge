@@ -403,6 +403,12 @@ pub(crate) fn consume_expr(
         ARYCAT => {
             op_arycat(vm, operand)?;
         }
+        ARYPUSH => {
+            op_arypush(vm, operand)?;
+        }
+        ARYSPLAT => {
+            op_arysplat(vm, operand)?;
+        }
         // ARYPUSH => {
         //     // op_arypush(vm, &operand)?;
         // }
@@ -2001,6 +2007,37 @@ fn do_op_array(vm: &mut VM, this: usize, start: usize, n: usize) -> Result<(), E
     }
     let val = RObject::array(ary);
     vm.current_regs()[this].replace(val.to_refcount_assigned());
+    Ok(())
+}
+
+pub(crate) fn op_arypush(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // ary_push(R[a], R[a+1]..R[a+b])
+    let (a, b) = operand.as_bb()?;
+    let a = a as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    let RValue::Array(ary) = &target.value else {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "ary_push needs an array".to_string(),
+        ));
+    };
+    for i in 1..=(b as usize) {
+        let item = vm.take_current_regs(a + i)?;
+        ary.borrow_mut().push(item);
+    }
+    Ok(())
+}
+
+pub(crate) fn op_arysplat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // R[a] = ary_splat(R[a])。配列はそのまま、nilは空、ほかは1要素の配列。
+    let a = operand.as_b()? as usize;
+    let val = vm.get_current_regs_cloned(a)?;
+    let spread = match &val.value {
+        RValue::Array(_) => val,
+        RValue::Nil => RObject::array(Vec::new()).to_refcount_assigned(),
+        _ => RObject::array(vec![val]).to_refcount_assigned(),
+    };
+    vm.current_regs()[a].replace(spread);
     Ok(())
 }
 

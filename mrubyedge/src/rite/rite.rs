@@ -114,20 +114,20 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
                 let (cur, irep_header, irep) = section_irep_1(head)?;
                 rite.irep_header = irep_header;
                 rite.irep = irep;
-                head = &head[cur..];
+                head = rest(head, cur)?;
             }
             LVAR => {
                 let (cur, lvar) = section_lvar(head, &mut rite.irep)?;
                 rite.lvar = Some(lvar);
-                head = &head[cur..];
+                head = rest(head, cur)?;
             }
             DBG => {
                 let cur = section_skip(head)?;
-                head = &head[cur..];
+                head = rest(head, cur)?;
             }
             END => {
                 let cur = section_end(head)?;
-                head = &head[cur..];
+                head = rest(head, cur)?;
             }
             _ => break,
         }
@@ -136,11 +136,24 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
     Ok(rite)
 }
 
+fn take(head: &[u8], at: usize, n: usize) -> Result<&[u8], Error> {
+    let end = at.checked_add(n).ok_or(Error::TooShort)?;
+    head.get(at..end).ok_or(Error::TooShort)
+}
+
+fn rest(head: &[u8], at: usize) -> Result<&[u8], Error> {
+    head.get(at..).ok_or(Error::TooShort)
+}
+
+fn byte(head: &[u8], at: usize) -> Result<u8, Error> {
+    head.get(at).copied().ok_or(Error::TooShort)
+}
+
 pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep<'_>>), Error> {
     let mut cur = 0;
 
     let irep_header_size = mem::size_of::<SectionIrepHeader>();
-    let irep_header = SectionIrepHeader::from_bytes(&head[cur..irep_header_size])?;
+    let irep_header = SectionIrepHeader::from_bytes(take(head, cur, irep_header_size)?)?;
     let irep_size = be32_to_u32(irep_header.size) as usize;
     if head.len() < irep_size {
         dbg!((head.len(), irep_size, head.len() < irep_size));
@@ -157,12 +170,12 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
         let start_cur = cur;
         // insn
         let record_size = mem::size_of::<IrepRecord>();
-        let irep_record = IrepRecord::from_bytes(&head[cur..cur + record_size])?;
+        let irep_record = IrepRecord::from_bytes(take(head, cur, record_size)?)?;
         let irep_rec_size = be32_to_u32(irep_record.size) as usize;
         let ilen = be32_to_u32(irep_record.ilen) as usize;
         cur += record_size;
 
-        let insns = &head[cur..cur + ilen];
+        let insns = take(head, cur, ilen)?;
 
         cur += ilen;
 
@@ -171,16 +184,24 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
         if clen > 0 {
             for _ in 0..clen {
                 let value = CatchHandler {
-                    type_: head[cur],
-                    start: be32_to_u32([head[cur + 1], head[cur + 2], head[cur + 3], head[cur + 4]])
-                        as usize,
-                    end: be32_to_u32([head[cur + 5], head[cur + 6], head[cur + 7], head[cur + 8]])
-                        as usize,
+                    type_: byte(head, cur)?,
+                    start: be32_to_u32([
+                        byte(head, cur + 1)?,
+                        byte(head, cur + 2)?,
+                        byte(head, cur + 3)?,
+                        byte(head, cur + 4)?,
+                    ]) as usize,
+                    end: be32_to_u32([
+                        byte(head, cur + 5)?,
+                        byte(head, cur + 6)?,
+                        byte(head, cur + 7)?,
+                        byte(head, cur + 8)?,
+                    ]) as usize,
                     target: be32_to_u32([
-                        head[cur + 9],
-                        head[cur + 10],
-                        head[cur + 11],
-                        head[cur + 12],
+                        byte(head, cur + 9)?,
+                        byte(head, cur + 10)?,
+                        byte(head, cur + 11)?,
+                        byte(head, cur + 12)?,
                     ]) as usize,
                 };
                 catch_handlers.push(value);
@@ -189,25 +210,25 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
         }
 
         // pool
-        let data = &head[cur..cur + 2];
+        let data = take(head, cur, 2)?;
         let plen = be16_to_u16([data[0], data[1]]) as usize;
         cur += 2;
 
         for _ in 0..plen {
-            let typ = head[cur];
+            let typ = byte(head, cur)?;
             cur += 1;
             match typ {
                 0 => {
                     // IREP_TT_STR: String (need free)
-                    let data = &head[cur..cur + 2];
+                    let data = take(head, cur, 2)?;
                     let strlen = be16_to_u16([data[0], data[1]]) as usize + 1;
                     cur += 2;
-                    pool.push(PoolValue::Str(head[cur..cur + strlen - 1].to_vec()));
+                    pool.push(PoolValue::Str(take(head, cur, strlen - 1)?.to_vec()));
                     cur += strlen;
                 }
                 1 => {
                     // IREP_TT_INT32: 32-bit integer
-                    let data = &head[cur..cur + 4];
+                    let data = take(head, cur, 4)?;
                     let mut bytes = [0u8; 4];
                     bytes.copy_from_slice(data);
                     let intval = i32::from_be_bytes(bytes);
@@ -216,15 +237,15 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                 }
                 2 => {
                     // IREP_TT_SSTR: Static string
-                    let data = &head[cur..cur + 2];
+                    let data = take(head, cur, 2)?;
                     let strlen = be16_to_u16([data[0], data[1]]) as usize + 1;
                     cur += 2;
-                    pool.push(PoolValue::SStr(head[cur..cur + strlen - 1].to_vec()));
+                    pool.push(PoolValue::SStr(take(head, cur, strlen - 1)?.to_vec()));
                     cur += strlen;
                 }
                 3 => {
                     // IREP_TT_INT64: 64-bit integer
-                    let data = &head[cur..cur + 8];
+                    let data = take(head, cur, 8)?;
                     let mut bytes = [0u8; 8];
                     bytes.copy_from_slice(data);
                     let intval = i64::from_be_bytes(bytes);
@@ -233,7 +254,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                 }
                 5 => {
                     // IREP_TT_FLOAT: Float (double/float)
-                    let data = &head[cur..cur + 8];
+                    let data = take(head, cur, 8)?;
                     let mut bytes = [0u8; 8];
                     bytes.copy_from_slice(data);
                     let floatval = f64::from_le_bytes(bytes);
@@ -242,8 +263,8 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                 }
                 7 => {
                     // IREP_TT_BIGINT: Big integer (not yet fully supported)
-                    let bigint_len = head[cur] as usize + 2;
-                    let bigint_data = head[cur..cur + bigint_len].to_vec();
+                    let bigint_len = byte(head, cur)? as usize + 2;
+                    let bigint_data = take(head, cur, bigint_len)?.to_vec();
                     pool.push(PoolValue::BigInt(bigint_data));
                     cur += bigint_len;
                 }
@@ -254,14 +275,14 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
         }
 
         // syms
-        let data = &head[cur..cur + 2];
+        let data = take(head, cur, 2)?;
         let slen = be16_to_u16([data[0], data[1]]) as usize;
         cur += 2;
         for _ in 0..slen {
-            let data = &head[cur..cur + 2];
+            let data = take(head, cur, 2)?;
             let symlen = be16_to_u16([data[0], data[1]]) as usize + 1;
             cur += 2;
-            syms.push(head[cur..cur + symlen - 1].to_vec());
+            syms.push(take(head, cur, symlen - 1)?.to_vec());
             cur += symlen;
         }
 
@@ -292,28 +313,33 @@ pub fn section_end(head: &[u8]) -> Result<usize, Error> {
 pub fn section_lvar(head: &[u8], ireps: &mut [Irep]) -> Result<(usize, LVar), Error> {
     let mut cur = 0;
     let header_size = mem::size_of::<SectionMiscHeader>();
-    let header = SectionMiscHeader::from_bytes(&head[cur..cur + header_size])?;
+    let header = SectionMiscHeader::from_bytes(take(head, cur, header_size)?)?;
     cur += header_size;
 
     // Read syms_len (4 bytes)
-    let syms_len = be32_to_u32([head[cur], head[cur + 1], head[cur + 2], head[cur + 3]]) as usize;
+    let syms_len = be32_to_u32([
+        byte(head, cur)?,
+        byte(head, cur + 1)?,
+        byte(head, cur + 2)?,
+        byte(head, cur + 3)?,
+    ]) as usize;
     cur += 4;
 
     // Read symbols
     let mut syms = Vec::new();
     for _ in 0..syms_len {
-        let str_len = be16_to_u16([head[cur], head[cur + 1]]) as usize;
+        let str_len = be16_to_u16([byte(head, cur)?, byte(head, cur + 1)?]) as usize;
         cur += 2;
 
         // Read string bytes (NOT null-terminated in the binary)
-        let str_bytes = &head[cur..cur + str_len];
+        let str_bytes = take(head, cur, str_len)?;
         let c_str = CString::new(str_bytes).map_err(|_| Error::InvalidFormat)?;
         syms.push(c_str);
         cur += str_len;
     }
 
     // Read lv records recursively
-    let _ = read_lv_records(&head[cur..], ireps, 0, &syms, syms_len)?;
+    let _ = read_lv_records(rest(head, cur)?, ireps, 0, &syms, syms_len)?;
 
     let lvar = LVar { header, syms };
     Ok((be32_to_u32(lvar.header.size) as usize, lvar))
@@ -341,7 +367,7 @@ fn read_lv_records(
     // Read local variable names for this irep (nlocals - 1 entries)
     let mut lv = Vec::new();
     for _ in 0..(nlocals - 1) {
-        let sym_idx = be16_to_u16([head[cur], head[cur + 1]]);
+        let sym_idx = be16_to_u16([byte(head, cur)?, byte(head, cur + 1)?]);
         cur += 2;
 
         if sym_idx == RITE_LV_NULL_MARK {
@@ -361,7 +387,7 @@ fn read_lv_records(
     let mut child_irep_idx = irep_idx + 1;
     for _ in 0..rlen {
         let (bytes_read, next_irep_idx) =
-            read_lv_records(&head[cur..], ireps, child_irep_idx, syms, syms_len)?;
+            read_lv_records(rest(head, cur)?, ireps, child_irep_idx, syms, syms_len)?;
         cur += bytes_read;
         child_irep_idx = next_irep_idx;
     }

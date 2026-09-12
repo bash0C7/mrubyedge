@@ -195,3 +195,24 @@ fn a_chunk_whose_sections_run_out_before_the_end_marker_still_reads_test() {
     // Assert
     assert_eq!(result, 2);
 }
+
+#[test]
+fn a_chunk_whose_lengths_are_corrupt_is_refused_not_fatal_test() {
+    let binary = mrbc_compile("corrupt", "def m(a); a; end\nm(\"hello\")");
+
+    for i in 0..binary.len() - 2 {
+        let mut chunk = binary.clone();
+        chunk[i] = 0xff;
+        chunk[i + 1] = 0xff;
+
+        // Assert
+        let outcome = std::panic::catch_unwind(|| {
+            std::hint::black_box(mrubyedge::rite::load(&chunk).is_ok())
+        });
+        assert!(
+            outcome.is_ok(),
+            "load panicked with bytes {i} and {} set to 0xff",
+            i + 1
+        );
+    }
+}

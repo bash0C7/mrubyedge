@@ -442,6 +442,12 @@ pub(crate) fn consume_expr(
         HASH => {
             op_hash(vm, operand)?;
         }
+        HASHADD => {
+            op_hashadd(vm, operand)?;
+        }
+        HASHCAT => {
+            op_hashcat(vm, operand)?;
+        }
         // HASHADD => {
         //     // op_hashadd(vm, &operand)?;
         // }
@@ -2200,6 +2206,43 @@ pub(crate) fn op_hash(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
     let val = RObject::hash(hash);
     vm.current_regs()[a].replace(Rc::new(val));
+    Ok(())
+}
+
+pub(crate) fn op_hashadd(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // hash_push(R[a], R[a+1]..R[a+b*2])
+    let (a, b) = operand.as_bb()?;
+    let a = a as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    let RValue::Hash(hash) = &target.value else {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "hash_push needs a hash".to_string(),
+        ));
+    };
+    for i in 0..(b as usize) {
+        let key = vm.get_current_regs_cloned(a + 1 + i * 2)?;
+        let val = vm.get_current_regs_cloned(a + 2 + i * 2)?;
+        hash.borrow_mut().insert(key.as_hash_key()?, (key, val));
+    }
+    Ok(())
+}
+
+pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // R[a] = hash_cat(R[a], R[a+1])
+    let a = operand.as_b()? as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    let other = vm.take_current_regs(a + 1)?;
+    let (RValue::Hash(hash), RValue::Hash(added)) = (&target.value, &other.value) else {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "hash_cat needs two hashes".to_string(),
+        ));
+    };
+    let pairs: Vec<_> = added.borrow().values().cloned().collect();
+    for (key, val) in pairs {
+        hash.borrow_mut().insert(key.as_hash_key()?, (key, val));
+    }
     Ok(())
 }
 

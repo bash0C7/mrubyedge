@@ -334,6 +334,9 @@ pub(crate) fn consume_expr(
         SUPER => {
             op_super(vm, operand)?;
         }
+        ARGARY => {
+            op_argary(vm, operand)?;
+        }
         // ARGARY => {
         //     // op_argary(vm, &operand)?;
         // }
@@ -1405,6 +1408,60 @@ pub(crate) fn op_call(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
+/// 引数を配列1本にまとめて渡すときの個数の目印(mrubyのCALL_MAXARGS)。
+const CALL_MAXARGS: u16 = 15;
+
+pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // R[a] = いま実行中のメソッドが受け取った引数の配列。
+    // bは16bitに詰めた並び (m5:r1:m5:d1:lv4)。
+    let (a, b) = operand.as_bs()?;
+    let a = a as usize;
+    let m1 = ((b >> 11) & 0x3f) as usize;
+    let r = ((b >> 10) & 0x1) as usize;
+    let m2 = ((b >> 5) & 0x1f) as usize;
+    let kd = ((b >> 4) & 0x1) as usize;
+    let lv = (b & 0xf) as usize;
+    if lv != 0 {
+        return Err(Error::internal(
+            "super from inside a block is not supported yet",
+        ));
+    }
+    // 引数はR[1]から並ぶ。R[0]はself。
+    let at = |i: usize| 1 + i;
+
+    let mut args: Vec<Rc<RObject>> = Vec::new();
+    for i in 0..m1 {
+        args.push(vm.get_current_regs_cloned(at(i))?);
+    }
+    if r == 1 {
+        let rest = vm.get_current_regs_cloned(at(m1))?;
+        if let RValue::Array(ary) = &rest.value {
+            args.extend(ary.borrow().iter().cloned());
+        } else {
+            args.push(rest);
+        }
+    }
+    for i in 0..m2 {
+        args.push(vm.get_current_regs_cloned(at(m1 + r + i))?);
+    }
+
+    let packed = RObject::array(args).to_refcount_assigned();
+    vm.current_regs()[a].replace(packed);
+
+    // ブロック(kdが立っていればキーワード引数、そのあとにブロック)。
+    // ブロックを渡さずに呼ばれたメソッドではそのレジスタが空なので、nilを置く。
+    let tail = at(m1 + r + m2);
+    vm.ensure_current_regs(a + 2);
+    let first = vm.current_regs()[tail].clone();
+    vm.current_regs()[a + 1] = Some(first.unwrap_or_else(|| RObject::nil().to_refcount_assigned()));
+    if kd == 1 {
+        let block = vm.current_regs()[tail + 1].clone();
+        vm.current_regs()[a + 2] =
+            Some(block.unwrap_or_else(|| RObject::nil().to_refcount_assigned()));
+    }
+    Ok(())
+}
+
 pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
     let callinfo = vm
@@ -1417,6 +1474,23 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .clone()
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
+    // bが15なら、引数はR[a+1]の配列1本にまとめて渡ってくる(mrubyの
+    // CALL_MAXARGSの約束)。引数を書かない`super`がこの形になる。呼ばれる側は
+    // R[1]から順に受け取るので、ここでレジスタへ並べ直して個数をそろえる。
+    let b = if b == CALL_MAXARGS {
+        let packed = vm.get_current_regs_cloned(a as usize + 1)?;
+        let RValue::Array(ary) = &packed.value else {
+            return Err(Error::internal("super expected its arguments in an array"));
+        };
+        let spread = ary.borrow().clone();
+        vm.ensure_current_regs(a as usize + spread.len());
+        for (i, arg) in spread.iter().enumerate() {
+            vm.current_regs()[a as usize + 1 + i].replace(arg.clone());
+        }
+        spread.len() as u16
+    } else {
+        b
+    };
     let args = (0..b)
         .map(|i| {
             vm.get_current_regs_cloned((a + i + 1) as usize)

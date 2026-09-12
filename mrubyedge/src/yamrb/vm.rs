@@ -545,6 +545,17 @@ impl VM {
             .map(|ch| ch.target)
     }
 
+    /// いまのフレームで`upto`番のレジスタまで触れるようにする。
+    ///
+    /// irepのnregsは、コンパイラが数えたぶんしか無い。配列にまとめて渡された
+    /// 引数をレジスタへ展開するときのように、そこを越えて書く場面で使う。
+    pub(crate) fn ensure_current_regs(&mut self, upto: usize) {
+        let needed = self.current_regs_offset + upto + 1;
+        if self.regs.len() < needed {
+            self.regs.resize(needed, None);
+        }
+    }
+
     pub(crate) fn current_regs(&mut self) -> &mut [Option<Rc<RObject>>] {
         // **EXT1が付く命令はレジスタ番号が255を超える。** いまのフレームが要る
         // 本数はirepのnregsに書いてあるので、足りなければそこまで伸ばす。

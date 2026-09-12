@@ -66,7 +66,10 @@ pub(crate) fn run_covering(code: &'static str, opcodes: &[&str]) -> Rc<RObject> 
     #[cfg(feature = "opcode-coverage")]
     {
         let seen = mrubyedge::yamrb::coverage::local_seen();
-        let missed: Vec<&&str> = opcodes.iter().filter(|n| !seen.contains(&n.to_string())).collect();
+        let missed: Vec<&&str> = opcodes
+            .iter()
+            .filter(|n| !seen.contains(&n.to_string()))
+            .collect();
         assert!(
             missed.is_empty(),
             "{missed:?} を踏んでいない。踏んだのは {seen:?}\n--- source ---\n{code}"

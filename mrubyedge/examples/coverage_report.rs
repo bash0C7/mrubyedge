@@ -34,10 +34,18 @@ fn main() {
         if path.extension().is_some_and(|e| e == "txt") {
             files += 1;
             let body = std::fs::read_to_string(&path).unwrap_or_default();
-            covered.extend(body.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from));
+            covered.extend(
+                body.lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .map(String::from),
+            );
         }
     }
-    assert!(files > 0, "{dir} にカバレッジの出力が無い。テストを先に走らせること");
+    assert!(
+        files > 0,
+        "{dir} にカバレッジの出力が無い。テストを先に走らせること"
+    );
 
     let all: Vec<String> = (0..OpCode::NumberOfOpcode as usize)
         .filter_map(|wire| OpCode::try_from(wire as u8).ok())
@@ -46,11 +54,20 @@ fn main() {
 
     // 計測器が壊れていたら、そう言う。黙って数字を出さない。
     let unknown: Vec<&String> = covered.iter().filter(|n| !all.contains(n)).collect();
-    assert!(unknown.is_empty(), "表に無い名前が記録されている: {unknown:?}");
+    assert!(
+        unknown.is_empty(),
+        "表に無い名前が記録されている: {unknown:?}"
+    );
 
     let not_emitted: BTreeSet<&str> = NOT_EMITTED.iter().map(|(n, _)| *n).collect();
-    let reachable: Vec<&String> = all.iter().filter(|n| !not_emitted.contains(n.as_str())).collect();
-    let missing: Vec<&&String> = reachable.iter().filter(|n| !covered.contains(**n)).collect();
+    let reachable: Vec<&String> = all
+        .iter()
+        .filter(|n| !not_emitted.contains(n.as_str()))
+        .collect();
+    let missing: Vec<&&String> = reachable
+        .iter()
+        .filter(|n| !covered.contains(**n))
+        .collect();
 
     println!("プロセス {files} 本ぶんを集計");
     println!("  全opcode          {}", all.len());
@@ -66,7 +83,14 @@ fn main() {
         println!();
         println!("踏めていない {}件:", missing.len());
         for chunk in missing.chunks(7) {
-            println!("  {}", chunk.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(" "));
+            println!(
+                "  {}",
+                chunk
+                    .iter()
+                    .map(|n| n.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
         }
         std::process::exit(1);
     }

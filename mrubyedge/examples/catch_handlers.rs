@@ -5,7 +5,9 @@ use mrubyedge::rite;
 use mrubyedge::rite::insn::{FETCH_TABLE, OpCode};
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: catch_handlers <file.rb>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: catch_handlers <file.rb>");
     let code = std::fs::read_to_string(&path).expect("cannot read source");
     let binary = unsafe {
         let mut ctx = mruby_compiler2_sys::MRubyCompiler2Context::new();
@@ -42,9 +44,12 @@ fn main() {
             println!(
                 "  type={} begin={} [{}] end={} [{}] target={} [{}]",
                 ch.type_,
-                ch.start, on(ch.start),
-                ch.end, on(ch.end),
-                ch.target, on(ch.target),
+                ch.start,
+                on(ch.start),
+                ch.end,
+                on(ch.end),
+                ch.target,
+                on(ch.target),
             );
         }
     }

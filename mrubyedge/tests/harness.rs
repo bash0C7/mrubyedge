@@ -102,7 +102,10 @@ fn local_seen_does_not_pick_up_another_thread_test() {
     let theirs = other.join().unwrap();
 
     // Assert
-    assert!(theirs.contains(&"GETIDX0".to_string()), "別スレッド側が踏んでいない");
+    assert!(
+        theirs.contains(&"GETIDX0".to_string()),
+        "別スレッド側が踏んでいない"
+    );
     assert!(
         !mine.contains(&"GETIDX0".to_string()),
         "別スレッドの記録が混ざっている: {mine:?}"

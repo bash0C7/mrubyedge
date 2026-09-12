@@ -10,7 +10,9 @@ use mrubyedge::rite;
 use mrubyedge::rite::insn::{FETCH_TABLE, OpCode};
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: opcode_histogram <file.rb>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: opcode_histogram <file.rb>");
     let code = std::fs::read_to_string(&path).expect("cannot read source");
 
     let binary = unsafe {

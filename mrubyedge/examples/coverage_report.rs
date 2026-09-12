@@ -1,50 +1,39 @@
-// テストが実際に踏んだopcodeを集計して、網羅できていないものを挙げる。
+// Reports which opcodes the test suite actually executed.
 //
 //   COV=/tmp/cov && rm -rf $COV && mkdir -p $COV
 //   MRUBYEDGE_OPCODE_COVERAGE_DIR=$COV cargo test -p mrubyedge \
 //     --features opcode-coverage,mruby-regexp,mruby-random
-//   MRUBYEDGE_OPCODE_COVERAGE_DIR=$COV cargo run --example coverage_report
-//
-// 踏めていないものが残っていたら終了コード1。CIの門にできる。
+//   MRUBYEDGE_OPCODE_COVERAGE_DIR=$COV cargo run --example coverage_report \
+//     --features opcode-coverage
 use std::collections::BTreeSet;
 
 use mrubyedge::rite::insn::OpCode;
 
-/// Rubyのソースから到達できないopcode。網羅の分母から外す。
-///
-/// 外す根拠はどれも実測。前の4件はmruby-compiler2(PicoRubyの`mrbc`とこの
-/// crateのテストが使う)とmruby本家の`codegen.c`の両方で`OP_<名前>`の参照が
-/// 0件だったもの。後ろの4件はcodegenが参照してはいるが、そこへ至るRubyを
-/// 書けないもの。
-const NOT_REACHABLE: &[(&str, &str)] = &[
-    ("CALL", "どちらのcodegenにもOP_CALLの参照が無い"),
-    ("SETSV", "$~などはRubyから代入できない"),
-    ("ASET", "SETIDXに置き換わっている"),
-    ("DEBUG", "通常のコンパイルでは出ない"),
-    (
-        "GETSV",
-        "$~ $& $1 $` $' $+ のどれもGETGVになる。GETSVは吐かれない",
-    ),
-    (
-        "SYMBOL",
-        "補間シンボルのpeepholeでだけ出るが、prismがその形のnodeを作らない",
-    ),
+/// Opcodes no Ruby source reaches with the compiler this crate's tests use.
+/// They are implemented; nothing compiles to them, so no test runs them.
+const NO_RUBY_REACHES: &[(&str, &str)] = &[
+    ("CALL", "neither codegen references OP_CALL"),
+    ("SETSV", "a special variable cannot be assigned from Ruby"),
+    ("ASET", "SETIDX took its place"),
+    ("DEBUG", "not emitted by an ordinary compile"),
+    ("GETSV", "$~ $& $1 $` $' $+ all compile to GETGV"),
+    ("SYMBOL", "a peephole on a node prism does not build"),
     (
         "ERR",
-        "裸のbreak・redo・retryで出るが、prismが構文解析で先に撥ねる",
+        "prism rejects the bare break, redo and retry it comes from",
     ),
     (
         "STOP",
-        "トップレベルのirepに吐かれるが、その手前のRETURNで実行ループが抜ける",
+        "emitted, but the top-level RETURN leaves the run loop first",
     ),
 ];
 
 fn main() {
-    let dir = std::env::var("MRUBYEDGE_OPCODE_COVERAGE_DIR")
-        .expect("MRUBYEDGE_OPCODE_COVERAGE_DIR を指定すること");
+    let dir =
+        std::env::var("MRUBYEDGE_OPCODE_COVERAGE_DIR").expect("set MRUBYEDGE_OPCODE_COVERAGE_DIR");
 
     let mut covered: BTreeSet<String> = BTreeSet::new();
-    let entries = std::fs::read_dir(&dir).expect("カバレッジの出力先が読めない");
+    let entries = std::fs::read_dir(&dir).expect("cannot read the coverage directory");
     let mut files = 0;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -59,58 +48,42 @@ fn main() {
             );
         }
     }
-    assert!(
-        files > 0,
-        "{dir} にカバレッジの出力が無い。テストを先に走らせること"
-    );
+    assert!(files > 0, "{dir} holds no coverage; run the tests first");
 
     let all: Vec<String> = (0..OpCode::NumberOfOpcode as usize)
         .filter_map(|wire| OpCode::try_from(wire as u8).ok())
         .map(|code| format!("{code:?}"))
         .collect();
 
-    // 計測器が壊れていたら、そう言う。黙って数字を出さない。
     let unknown: Vec<&String> = covered.iter().filter(|n| !all.contains(n)).collect();
     assert!(
         unknown.is_empty(),
-        "表に無い名前が記録されている: {unknown:?}"
+        "recorded a name not in the table: {unknown:?}"
     );
 
-    let not_emitted: BTreeSet<&str> = NOT_REACHABLE.iter().map(|(n, _)| *n).collect();
-    let reachable: Vec<&String> = all
-        .iter()
-        .filter(|n| !not_emitted.contains(n.as_str()))
-        .collect();
-    let missing: Vec<&&String> = reachable
-        .iter()
-        .filter(|n| !covered.contains(**n))
-        .collect();
+    let missing: Vec<&String> = all.iter().filter(|n| !covered.contains(*n)).collect();
 
-    println!("プロセス {files} 本ぶんを集計");
-    println!("  全opcode     {}", all.len());
-    println!("  到達できない   {}", not_emitted.len());
-    println!("  到達できる   {}", reachable.len());
-    println!("  踏んだ       {}", covered.len());
-    println!("  踏めていない {}", missing.len());
-    println!();
-    for (name, why) in NOT_REACHABLE {
-        println!("  除外 {name:<8} {why}");
-    }
+    println!("collected from {files} processes");
+    println!("  opcodes      {}", all.len());
+    println!("  run by tests {}", covered.len());
+    println!("  never run    {}", missing.len());
+
+    let mut unexplained = Vec::new();
     if !missing.is_empty() {
         println!();
-        println!("踏めていない {}件:", missing.len());
-        for chunk in missing.chunks(7) {
-            println!(
-                "  {}",
-                chunk
-                    .iter()
-                    .map(|n| n.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            );
+        for name in &missing {
+            match NO_RUBY_REACHES.iter().find(|(n, _)| *n == name.as_str()) {
+                Some((_, why)) => println!("  {name:<8} {why}"),
+                None => {
+                    println!("  {name:<8} no Ruby written for it yet");
+                    unexplained.push(name.as_str());
+                }
+            }
         }
+    }
+    if !unexplained.is_empty() {
+        println!();
+        println!("{} of those have no reason recorded", unexplained.len());
         std::process::exit(1);
     }
-    println!();
-    println!("到達できる{}件をすべて踏んだ", reachable.len());
 }

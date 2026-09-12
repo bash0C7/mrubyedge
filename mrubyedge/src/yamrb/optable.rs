@@ -250,6 +250,12 @@ pub(crate) fn consume_expr(
         GETIV => {
             op_getiv(vm, operand)?;
         }
+        GETCV => {
+            op_getcv(vm, operand)?;
+        }
+        SETCV => {
+            op_setcv(vm, operand)?;
+        }
         SETIV => {
             op_setiv(vm, operand)?;
         }
@@ -714,6 +720,56 @@ pub(crate) fn op_setiv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let val = vm.get_current_regs_cloned(a as usize)?;
     let key = vm.current_irep.syms[b as usize].name.clone();
     this.set_ivar(&key, val.clone());
+    Ok(())
+}
+
+/// クラス変数を探す起点。selfがクラスならそれ自身、そうでなければselfのクラス。
+fn cvar_origin(vm: &mut VM) -> Result<Rc<RClass>, Error> {
+    let this = vm.getself()?;
+    match &this.value {
+        RValue::Class(klass) => Ok(klass.clone()),
+        _ => Ok(this.get_class(vm)),
+    }
+}
+
+/// 継承の連鎖をたどって、そのクラス変数を持つクラスを返す。
+fn cvar_holder(origin: &Rc<RClass>, key: &str) -> Option<Rc<RClass>> {
+    let mut klass = Some(origin.clone());
+    while let Some(current) = klass {
+        if current.module.cvars.borrow().contains_key(key) {
+            return Some(current);
+        }
+        klass = current.super_class.clone();
+    }
+    None
+}
+
+pub(crate) fn op_getcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let key = vm.current_irep.syms[b as usize].name.clone();
+    let origin = cvar_origin(vm)?;
+    let Some(holder) = cvar_holder(&origin, &key) else {
+        return Err(Error::TaggedError(
+            "NameError",
+            format!(
+                "uninitialized class variable {key} in {}",
+                origin.full_name()
+            ),
+        ));
+    };
+    let val = holder.module.cvars.borrow().get(&key).cloned().unwrap();
+    vm.current_regs()[a as usize].replace(val);
+    Ok(())
+}
+
+pub(crate) fn op_setcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let key = vm.current_irep.syms[b as usize].name.clone();
+    let val = vm.get_current_regs_cloned(a as usize)?;
+    let origin = cvar_origin(vm)?;
+    // 親が持っているならそちらへ書く。誰も持っていなければ起点に作る。
+    let holder = cvar_holder(&origin, &key).unwrap_or(origin);
+    holder.module.cvars.borrow_mut().insert(key, val);
     Ok(())
 }
 

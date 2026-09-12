@@ -3,7 +3,6 @@ extern crate simple_endian;
 use super::Error;
 use super::binfmt::*;
 
-use core::ffi::CStr;
 use core::mem;
 use std::ffi::CString;
 
@@ -13,9 +12,9 @@ use simple_endian::{u16be, u32be};
 
 #[derive(Debug, Clone)]
 pub enum PoolValue {
-    Str(CString),    // IREP_TT_STR = 0 (need free)
+    Str(Vec<u8>),    // IREP_TT_STR = 0 (need free)
     Int32(i32),      // IREP_TT_INT32 = 1
-    SStr(CString),   // IREP_TT_SSTR = 2 (static)
+    SStr(Vec<u8>),   // IREP_TT_SSTR = 2 (static)
     Int64(i64),      // IREP_TT_INT64 = 3
     Float(f64),      // IREP_TT_FLOAT = 5
     BigInt(Vec<u8>), // IREP_TT_BIGINT = 7 (not yet fully supported)
@@ -36,7 +35,7 @@ pub struct Irep<'a> {
     pub plen: usize,
     pub pool: Vec<PoolValue>,
     pub slen: usize,
-    pub syms: Vec<CString>,
+    pub syms: Vec<Vec<u8>>,
     pub catch_handlers: Vec<CatchHandler>,
     pub lv: Vec<Option<CString>>, // Local variable names (indices into LVar::syms)
 }
@@ -153,7 +152,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
 
     while cur < irep_size {
         let mut pool = Vec::<PoolValue>::new();
-        let mut syms = Vec::<CString>::new();
+        let mut syms = Vec::<Vec<u8>>::new();
 
         let start_cur = cur;
         // insn
@@ -203,9 +202,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                     let data = &head[cur..cur + 2];
                     let strlen = be16_to_u16([data[0], data[1]]) as usize + 1;
                     cur += 2;
-                    let strval = CStr::from_bytes_with_nul(&head[cur..cur + strlen])
-                        .or(Err(Error::InvalidFormat))?;
-                    pool.push(PoolValue::Str(strval.to_owned()));
+                    pool.push(PoolValue::Str(head[cur..cur + strlen - 1].to_vec()));
                     cur += strlen;
                 }
                 1 => {
@@ -222,9 +219,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
                     let data = &head[cur..cur + 2];
                     let strlen = be16_to_u16([data[0], data[1]]) as usize + 1;
                     cur += 2;
-                    let strval = CStr::from_bytes_with_nul(&head[cur..cur + strlen])
-                        .or(Err(Error::InvalidFormat))?;
-                    pool.push(PoolValue::SStr(strval.to_owned()));
+                    pool.push(PoolValue::SStr(head[cur..cur + strlen - 1].to_vec()));
                     cur += strlen;
                 }
                 3 => {
@@ -266,9 +261,7 @@ pub fn section_irep_1(head: &[u8]) -> Result<(usize, SectionIrepHeader, Vec<Irep
             let data = &head[cur..cur + 2];
             let symlen = be16_to_u16([data[0], data[1]]) as usize + 1;
             cur += 2;
-            let symval = CStr::from_bytes_with_nul(&head[cur..cur + symlen])
-                .or(Err(Error::InvalidFormat))?;
-            syms.push(symval.to_owned());
+            syms.push(head[cur..cur + symlen - 1].to_vec());
             cur += symlen;
         }
 

@@ -126,7 +126,7 @@ fn a_chunk_whose_pool_holds_a_bignum_reads_the_entries_after_it_test() {
     assert!(irep.pool.iter().any(|p| matches!(p, PoolValue::BigInt(_))));
     assert!(
         irep.pool.iter().any(
-            |p| matches!(p, PoolValue::Str(s) | PoolValue::SStr(s) if s.to_bytes() == b"after")
+            |p| matches!(p, PoolValue::Str(s) | PoolValue::SStr(s) if s.as_slice() == b"after")
         )
     );
 }

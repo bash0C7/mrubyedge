@@ -827,12 +827,14 @@ fn load_irep_1(reps: &mut [Irep], pos: usize) -> (IREP, usize) {
     for sym in irep.syms.iter() {
         irep1
             .syms
-            .push(RSym::new(sym.to_string_lossy().to_string()));
+            .push(RSym::new(String::from_utf8_lossy(sym).to_string()));
     }
     for val in irep.pool.iter() {
         match val {
             crate::rite::PoolValue::Str(s) | crate::rite::PoolValue::SStr(s) => {
-                irep1.pool.push(RPool::Str(s.to_string_lossy().to_string()));
+                irep1
+                    .pool
+                    .push(RPool::Str(String::from_utf8_lossy(s).to_string()));
             }
             crate::rite::PoolValue::Int32(i) => {
                 irep1.pool.push(RPool::Int(*i as i64));

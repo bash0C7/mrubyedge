@@ -686,3 +686,17 @@ fn string_size_test() {
     let result: i64 = result.as_ref().try_into().unwrap();
     assert_eq!(result, 5);
 }
+
+#[test]
+fn string_literal_holding_a_zero_byte_test() {
+    let code = r#"
+s = "a\0b"
+s.bytesize
+    "#;
+    let binary = mrbc_compile("nulstr", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 3);
+}

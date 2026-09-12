@@ -430,6 +430,9 @@ pub(crate) fn consume_expr(
         STRCAT => {
             op_strcat(vm, operand)?;
         }
+        INTERN => {
+            op_intern(vm, operand)?;
+        }
         HASH => {
             op_hash(vm, operand)?;
         }
@@ -2090,6 +2093,23 @@ pub(crate) fn op_string(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let str = vm.current_irep.pool[b as usize].as_str().to_string();
     let val = RObject::string(str);
     vm.current_regs()[a as usize].replace(val.to_refcount_assigned());
+    Ok(())
+}
+
+pub(crate) fn op_intern(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    // R[a] = intern(R[a])
+    let a = operand.as_b()? as usize;
+    let val = vm.get_current_regs_cloned(a)?;
+    let RValue::String(bytes, _) = &val.value else {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "intern needs a string".to_string(),
+        ));
+    };
+    let name = String::from_utf8(bytes.borrow().clone())
+        .map_err(|_| Error::internal("symbol name is not valid UTF-8"))?;
+    let sym = RObject::symbol(RSym::new(name)).to_refcount_assigned();
+    vm.current_regs()[a].replace(sym);
     Ok(())
 }
 

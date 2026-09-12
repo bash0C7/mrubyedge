@@ -250,6 +250,12 @@ pub(crate) fn consume_expr(
         GETIV => {
             op_getiv(vm, operand)?;
         }
+        GETSV => {
+            op_getsv(vm, operand)?;
+        }
+        SETSV => {
+            op_setsv(vm, operand)?;
+        }
         GETCV => {
             op_getcv(vm, operand)?;
         }
@@ -421,6 +427,9 @@ pub(crate) fn consume_expr(
         AREF => {
             op_aref(vm, operand)?;
         }
+        ASET => {
+            op_aset(vm, operand)?;
+        }
         // ASET => {
         //     // op_aset(vm, &operand)?;
         // }
@@ -516,6 +525,12 @@ pub(crate) fn consume_expr(
         // }
         STOP => {
             op_stop(vm, operand)?;
+        }
+        DEBUG => {
+            op_debug(vm, operand)?;
+        }
+        ERR => {
+            op_err(vm, operand)?;
         }
         // mruby 4.0 (RITE0400)
         GETIDX0 => {
@@ -744,7 +759,6 @@ pub(crate) fn op_setiv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
-/// クラス変数を探す起点。selfがクラスならそれ自身、そうでなければselfのクラス。
 fn cvar_origin(vm: &mut VM) -> Result<Rc<RClass>, Error> {
     let this = vm.getself()?;
     match &this.value {
@@ -753,7 +767,6 @@ fn cvar_origin(vm: &mut VM) -> Result<Rc<RClass>, Error> {
     }
 }
 
-/// 継承の連鎖をたどって、そのクラス変数を持つクラスを返す。
 fn cvar_holder(origin: &Rc<RClass>, key: &str) -> Option<Rc<RClass>> {
     let mut klass = Some(origin.clone());
     while let Some(current) = klass {
@@ -788,7 +801,6 @@ pub(crate) fn op_setcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let key = vm.current_irep.syms[b as usize].name.clone();
     let val = vm.get_current_regs_cloned(a as usize)?;
     let origin = cvar_origin(vm)?;
-    // 親が持っているならそちらへ書く。誰も持っていなければ起点に作る。
     let holder = cvar_holder(&origin, &key).unwrap_or(origin);
     holder.module.cvars.borrow_mut().insert(key, val);
     Ok(())
@@ -862,6 +874,18 @@ pub(crate) fn op_setmcnst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         }
     };
     module.consts.borrow_mut().insert(name, val);
+    Ok(())
+}
+
+pub(crate) fn op_getsv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, _b) = operand.as_bb()?;
+    let val = RObject::integer(0).to_refcount_assigned();
+    vm.current_regs()[a as usize].replace(val);
+    Ok(())
+}
+
+pub(crate) fn op_setsv(_vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (_a, _b) = operand.as_bb()?;
     Ok(())
 }
 
@@ -1408,12 +1432,9 @@ pub(crate) fn op_call(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
-/// 引数を配列1本にまとめて渡すときの個数の目印(mrubyのCALL_MAXARGS)。
 const CALL_MAXARGS: u16 = 15;
 
 pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    // R[a] = いま実行中のメソッドが受け取った引数の配列。
-    // bは16bitに詰めた並び (m5:r1:m5:d1:lv4)。
     let (a, b) = operand.as_bs()?;
     let a = a as usize;
     let m1 = ((b >> 11) & 0x3f) as usize;
@@ -1426,7 +1447,6 @@ pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             "super from inside a block is not supported yet",
         ));
     }
-    // 引数はR[1]から並ぶ。R[0]はself。
     let at = |i: usize| 1 + i;
 
     let mut args: Vec<Rc<RObject>> = Vec::new();
@@ -1448,8 +1468,6 @@ pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let packed = RObject::array(args).to_refcount_assigned();
     vm.current_regs()[a].replace(packed);
 
-    // ブロック(kdが立っていればキーワード引数、そのあとにブロック)。
-    // ブロックを渡さずに呼ばれたメソッドではそのレジスタが空なので、nilを置く。
     let tail = at(m1 + r + m2);
     vm.ensure_current_regs(a + 2);
     let first = vm.current_regs()[tail].clone();
@@ -1474,9 +1492,6 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .clone()
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
-    // bが15なら、引数はR[a+1]の配列1本にまとめて渡ってくる(mrubyの
-    // CALL_MAXARGSの約束)。引数を書かない`super`がこの形になる。呼ばれる側は
-    // R[1]から順に受け取るので、ここでレジスタへ並べ直して個数をそろえる。
     let b = if b == CALL_MAXARGS {
         let packed = vm.get_current_regs_cloned(a as usize + 1)?;
         let RValue::Array(ary) = &packed.value else {
@@ -2109,7 +2124,6 @@ pub(crate) fn op_arypush(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 }
 
 pub(crate) fn op_arysplat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    // R[a] = ary_splat(R[a])。配列はそのまま、nilは空、ほかは1要素の配列。
     let a = operand.as_b()? as usize;
     let val = vm.get_current_regs_cloned(a)?;
     let spread = match &val.value {
@@ -2118,6 +2132,25 @@ pub(crate) fn op_arysplat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         _ => RObject::array(vec![val]).to_refcount_assigned(),
     };
     vm.current_regs()[a].replace(spread);
+    Ok(())
+}
+
+pub(crate) fn op_aset(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b, c) = operand.as_bbb()?;
+    let val = vm.get_current_regs_cloned(a as usize)?;
+    let target = vm.get_current_regs_cloned(b as usize)?;
+    let RValue::Array(ary) = &target.value else {
+        return Err(Error::TaggedError(
+            "TypeError",
+            "no implicit conversion into Array".to_string(),
+        ));
+    };
+    let index = c as usize;
+    let mut ary = ary.borrow_mut();
+    while ary.len() <= index {
+        ary.push(RObject::nil().to_refcount_assigned());
+    }
+    ary[index] = val;
     Ok(())
 }
 
@@ -2698,6 +2731,18 @@ pub(crate) fn op_sdef(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .insert(sym.name.clone(), method);
     vm.current_regs()[a as usize].replace(RObject::symbol(sym).to_refcount_assigned());
     Ok(())
+}
+
+pub(crate) fn op_debug(_vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b, c) = operand.as_bbb()?;
+    eprintln!("OP_DEBUG {a} {b} {c}");
+    Ok(())
+}
+
+pub(crate) fn op_err(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let message = vm.current_irep.pool[a].as_str().to_string();
+    Err(Error::TaggedError("LocalJumpError", message))
 }
 
 pub(crate) fn op_stop(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {

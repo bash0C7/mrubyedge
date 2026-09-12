@@ -15,8 +15,6 @@ use super::{op, optable::*};
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const ENGINE: &str = "mruby/edge";
 
-// レジスタの起点の本数。EXT1が付く命令はレジスタ番号が255を超えるので、
-// これを超えるフレームに入ったらcurrent_regsが伸ばす。
 const INITIAL_REGS_SIZE: usize = 256;
 
 #[derive(Debug, Clone)]
@@ -69,8 +67,6 @@ impl Breadcrumb {
     }
 }
 
-// VMが1つ落ちるたびに、そのプロセスが踏んだopcodeを書き出す。累積なので
-// 最後の1回に全部入る。
 #[cfg(feature = "opcode-coverage")]
 impl Drop for VM {
     fn drop(&mut self) {
@@ -545,10 +541,7 @@ impl VM {
             .map(|ch| ch.target)
     }
 
-    /// いまのフレームで`upto`番のレジスタまで触れるようにする。
     ///
-    /// irepのnregsは、コンパイラが数えたぶんしか無い。配列にまとめて渡された
-    /// 引数をレジスタへ展開するときのように、そこを越えて書く場面で使う。
     pub(crate) fn ensure_current_regs(&mut self, upto: usize) {
         let needed = self.current_regs_offset + upto + 1;
         if self.regs.len() < needed {
@@ -557,8 +550,6 @@ impl VM {
     }
 
     pub(crate) fn current_regs(&mut self) -> &mut [Option<Rc<RObject>>] {
-        // **EXT1が付く命令はレジスタ番号が255を超える。** いまのフレームが要る
-        // 本数はirepのnregsに書いてあるので、足りなければそこまで伸ばす。
         let needed = self.current_regs_offset + self.current_irep.nregs;
         if self.regs.len() < needed {
             self.regs.resize(needed, None);
@@ -823,8 +814,6 @@ impl VM {
 }
 
 fn interpret_insn(mut insns: &[u8]) -> Vec<Op> {
-    // **EXTの前置きは命令の一部として数える。** posとlenはバイト位置なので、
-    // 前置きのぶんも含めないとcatch handlerの範囲もジャンプ先もずれる。
     let total = insns.len();
     let mut ops = Vec::new();
     while !insns.is_empty() {

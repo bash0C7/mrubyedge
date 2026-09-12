@@ -483,7 +483,6 @@ impl Debug for OpCode {
     }
 }
 
-// オペランドの並び。mruby 4.0の`ops.h`が各命令に付けている記号と同じ。
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Shape {
     Z,
@@ -533,12 +532,7 @@ fn read_w(body: &[u8], at: usize) -> Result<u32, Error> {
     Ok((a << 16) | (b << 8) | c)
 }
 
-/// 1命令ぶんのオペランドを読む。`bin`の先頭はopcodeのバイト。
 ///
-/// `ext`はその命令に前置きが付いていたかで、1なら第1オペランド、2なら第2、
-/// 3なら両方が16bitになる。どの並びがどう変わるかはmrubyの
-/// `include/mruby/opcode.h`のFETCH_*_1・_2・_3のとおり。並びによっては
-/// 前置きが付いても幅が変わらない(`B`にEXT3が付いても8bitのまま、など)。
 fn fetch_shape(shape: Shape, bin: &mut &[u8], ext: u8) -> Result<Fetched, Error> {
     let body = &bin[1..];
     let (operand, size) = match (shape, ext) {
@@ -582,10 +576,7 @@ fn fetch_shape(shape: Shape, bin: &mut &[u8], ext: u8) -> Result<Fetched, Error>
     Ok(operand)
 }
 
-/// EXTの前置きを含めて1命令ぶん読む。前置きが在れば`ext`に1・2・3を返す。
 ///
-/// **前置きは命令の一部として扱う。** 読み飛ばすだけにすると、後続の命令の
-/// オペランドを狭いまま読んで、そこから先をまるごと取り違える。
 pub fn fetch_next(bin: &mut &[u8]) -> Result<(OpCode, Fetched, u8), Error> {
     let mut ext = 0u8;
     loop {

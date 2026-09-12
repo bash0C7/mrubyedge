@@ -1,5 +1,3 @@
-// 引数を書かない`super`は、いま実行中のメソッドが受け取った引数をそのまま
-// 親へ渡す。その引数の配列を作るのがARGARY。
 extern crate mrubyedge;
 
 mod helpers;

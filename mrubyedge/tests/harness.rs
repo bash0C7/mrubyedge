@@ -1,8 +1,4 @@
-// テストを書くための道具そのものを試す。
 //
-// **カバレッジの検査は、落ちるべきときに落ちることを見せないと意味がない。**
-// 踏んでいないopcodeを要求したら落ちること、綴りを間違えたら落ちること、
-// スレッドごとの記録が混ざらないことを、ここで固定する。
 extern crate mrubyedge;
 
 mod helpers;
@@ -55,7 +51,6 @@ fn run_covering_passes_an_opcode_the_code_really_runs_test() {
 #[test]
 #[should_panic(expected = "opcodeではない")]
 fn run_covering_rejects_a_misspelled_opcode_test() {
-    // featureの有無によらず落ちる。名前を間違えたテストが黙って通り続けるのを防ぐ
     run_covering("1", &["GETIDXZERO"]);
 }
 
@@ -69,7 +64,6 @@ fn run_covering_rejects_an_empty_list_test() {
 #[test]
 #[should_panic(expected = "を踏んでいない")]
 fn run_covering_fails_when_the_opcode_is_not_reached_test() {
-    // 整数を足すだけのコードはGETIDX0を踏まない
     run_covering("1 + 2", &["GETIDX0"]);
 }
 
@@ -92,7 +86,6 @@ fn local_seen_is_reset_for_each_run_test() {
 #[cfg(feature = "opcode-coverage")]
 #[test]
 fn local_seen_does_not_pick_up_another_thread_test() {
-    // 別スレッドでGETIDX0を踏ませても、こちらの記録には入らない
     let other = std::thread::spawn(|| {
         run("a = [5, 6]\na[0]");
         mrubyedge::yamrb::coverage::local_seen()

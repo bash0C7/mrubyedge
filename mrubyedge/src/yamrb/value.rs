@@ -884,7 +884,6 @@ pub struct RModule {
     pub sym_id: RSym,
     pub procs: RefCell<RHashMap<String, RProc>>,
     pub consts: RefCell<RHashMap<String, Rc<RObject>>>,
-    /// クラス変数。`@@x`はクラスに付き、継承の連鎖をたどって見つける。
     pub cvars: RefCell<RHashMap<String, Rc<RObject>>>,
     pub mixed_in_modules: RefCell<Vec<Rc<RModule>>>,
     pub parent: RefCell<Option<Rc<RModule>>>,

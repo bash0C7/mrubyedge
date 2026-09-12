@@ -20,3 +20,21 @@ fn test_singleton_class() {
     let result: i32 = result.as_ref().try_into().unwrap();
     assert_eq!(result, 123);
 }
+
+#[test]
+fn class_self_opens_the_singleton_class_test() {
+    let code = "
+class C
+  class << self
+    def built; 11; end
+  end
+end
+C.built
+";
+
+    let result = run_covering(code, &["SCLASS"]);
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 11);
+}

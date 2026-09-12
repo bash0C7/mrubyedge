@@ -10,16 +10,33 @@ use std::collections::BTreeSet;
 
 use mrubyedge::rite::insn::OpCode;
 
-/// mruby 4.0のcodegenがどちらも吐かないopcode。
+/// Rubyのソースから到達できないopcode。網羅の分母から外す。
 ///
-/// mruby-compiler2(PicoRubyの`mrbc`とこのcrateのテストが使う)とmruby本家の
-/// `codegen.c`の両方で`OP_<名前>`の参照が0件だったもの。Rubyのソースからは
-/// 到達できないので、網羅の分母から外す。
-const NOT_EMITTED: &[(&str, &str)] = &[
+/// 外す根拠はどれも実測。前の4件はmruby-compiler2(PicoRubyの`mrbc`とこの
+/// crateのテストが使う)とmruby本家の`codegen.c`の両方で`OP_<名前>`の参照が
+/// 0件だったもの。後ろの4件はcodegenが参照してはいるが、そこへ至るRubyを
+/// 書けないもの。
+const NOT_REACHABLE: &[(&str, &str)] = &[
     ("CALL", "どちらのcodegenにもOP_CALLの参照が無い"),
     ("SETSV", "$~などはRubyから代入できない"),
     ("ASET", "SETIDXに置き換わっている"),
     ("DEBUG", "通常のコンパイルでは出ない"),
+    (
+        "GETSV",
+        "$~ $& $1 $` $' $+ のどれもGETGVになる。GETSVは吐かれない",
+    ),
+    (
+        "SYMBOL",
+        "補間シンボルのpeepholeでだけ出るが、prismがその形のnodeを作らない",
+    ),
+    (
+        "ERR",
+        "裸のbreak・redo・retryで出るが、prismが構文解析で先に撥ねる",
+    ),
+    (
+        "STOP",
+        "トップレベルのirepに吐かれるが、その手前のRETURNで実行ループが抜ける",
+    ),
 ];
 
 fn main() {
@@ -59,7 +76,7 @@ fn main() {
         "表に無い名前が記録されている: {unknown:?}"
     );
 
-    let not_emitted: BTreeSet<&str> = NOT_EMITTED.iter().map(|(n, _)| *n).collect();
+    let not_emitted: BTreeSet<&str> = NOT_REACHABLE.iter().map(|(n, _)| *n).collect();
     let reachable: Vec<&String> = all
         .iter()
         .filter(|n| !not_emitted.contains(n.as_str()))
@@ -70,14 +87,14 @@ fn main() {
         .collect();
 
     println!("プロセス {files} 本ぶんを集計");
-    println!("  全opcode          {}", all.len());
-    println!("  codegenが吐かない {}", not_emitted.len());
-    println!("  到達できる        {}", reachable.len());
-    println!("  踏んだ            {}", covered.len());
-    println!("  踏めていない      {}", missing.len());
+    println!("  全opcode     {}", all.len());
+    println!("  到達できない   {}", not_emitted.len());
+    println!("  到達できる   {}", reachable.len());
+    println!("  踏んだ       {}", covered.len());
+    println!("  踏めていない {}", missing.len());
     println!();
-    for (name, why) in NOT_EMITTED {
-        println!("  除外 {name:<10} {why}");
+    for (name, why) in NOT_REACHABLE {
+        println!("  除外 {name:<8} {why}");
     }
     if !missing.is_empty() {
         println!();

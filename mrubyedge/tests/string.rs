@@ -700,3 +700,18 @@ s.bytesize
     let result: i64 = result.as_ref().try_into().unwrap();
     assert_eq!(result, 3);
 }
+
+#[test]
+fn symbol_built_from_an_interpolated_string_test() {
+    let code = r#"
+n = 1
+s = :"a#{n}"
+s.to_s
+    "#;
+    let binary = mrbc_compile("intern", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "a1");
+}

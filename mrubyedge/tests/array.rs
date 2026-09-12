@@ -602,3 +602,35 @@ fn array_flatten_self_returns_self_if_changed_test() {
     assert_eq!(result_vals, vec![1, 2, 3]);
     assert_eq!(a_vals, vec![1, 2, 3]);
 }
+
+#[test]
+fn array_literal_holding_a_splat_test() {
+    let code = "
+a = [2, 3]
+b = [1, *a, 4]
+b[0] + b[1] + b[2] + b[3]
+    ";
+    let binary = mrbc_compile("arypush", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 10);
+}
+
+#[test]
+fn returning_a_splat_gives_an_array_test() {
+    let code = "
+def spread(a)
+  return *a
+end
+
+spread([5, 6]).size
+    ";
+    let binary = mrbc_compile("arysplat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 2);
+}

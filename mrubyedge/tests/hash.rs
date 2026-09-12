@@ -404,3 +404,34 @@ fn hash_flatten_test() {
     assert!(ints.contains(&1));
     assert!(ints.contains(&2));
 }
+
+#[test]
+fn hash_literal_spreading_another_hash_test() {
+    let code = "
+h = {a: 1}
+g = {**h, b: 2}
+g[:a] + g[:b]
+    ";
+    let binary = mrbc_compile("hashadd", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 3);
+}
+
+#[test]
+fn hash_literal_spreading_two_hashes_test() {
+    let code = "
+h = {a: 1}
+i = {b: 2}
+g = {**h, **i}
+g[:a] + g[:b]
+    ";
+    let binary = mrbc_compile("hashcat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 3);
+}

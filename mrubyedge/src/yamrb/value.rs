@@ -884,6 +884,7 @@ pub struct RModule {
     pub sym_id: RSym,
     pub procs: RefCell<RHashMap<String, RProc>>,
     pub consts: RefCell<RHashMap<String, Rc<RObject>>>,
+    pub cvars: RefCell<RHashMap<String, Rc<RObject>>>,
     pub mixed_in_modules: RefCell<Vec<Rc<RModule>>>,
     pub parent: RefCell<Option<Rc<RModule>>>,
 
@@ -897,6 +898,7 @@ impl RModule {
             sym_id: RSym::new(name),
             procs: RefCell::new(RHashMap::default()),
             consts: RefCell::new(RHashMap::default()),
+            cvars: RefCell::new(RHashMap::default()),
             mixed_in_modules: RefCell::new(Vec::new()),
             parent: RefCell::new(None),
             underlying: RefCell::new(None),

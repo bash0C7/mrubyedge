@@ -251,12 +251,12 @@ pub(crate) fn consume_expr(
         SETIV => {
             op_setiv(vm, operand)?;
         }
-        // GETCV => {
-        //     // op_getcv(vm, &operand)?;
-        // }
-        // SETCV => {
-        //     // op_setcv(vm, &operand)?;
-        // }
+        GETCV => {
+            op_getcv(vm, operand)?;
+        }
+        SETCV => {
+            op_setcv(vm, operand)?;
+        }
         GETCONST => {
             op_getconst(vm, operand)?;
         }
@@ -266,9 +266,9 @@ pub(crate) fn consume_expr(
         GETMCNST => {
             op_getmcnst(vm, operand)?;
         }
-        // SETMCNST => {
-        //     // op_setmcnst(vm, &operand)?;
-        // }
+        SETMCNST => {
+            op_setmcnst(vm, operand)?;
+        }
         GETUPVAR => {
             op_getupvar(vm, operand)?;
         }
@@ -323,9 +323,9 @@ pub(crate) fn consume_expr(
         SUPER => {
             op_super(vm, operand)?;
         }
-        // ARGARY => {
-        //     // op_argary(vm, &operand)?;
-        // }
+        ARGARY => {
+            op_argary(vm, operand)?;
+        }
         ENTER => {
             op_enter(vm, operand)?;
         }
@@ -392,12 +392,12 @@ pub(crate) fn consume_expr(
         ARYCAT => {
             op_arycat(vm, operand)?;
         }
-        // ARYPUSH => {
-        //     // op_arypush(vm, &operand)?;
-        // }
-        // ARYSPLAT => {
-        //     // op_arysplat(vm, &operand)?;
-        // }
+        ARYPUSH => {
+            op_arypush(vm, operand)?;
+        }
+        ARYSPLAT => {
+            op_arysplat(vm, operand)?;
+        }
         AREF => {
             op_aref(vm, operand)?;
         }
@@ -407,9 +407,9 @@ pub(crate) fn consume_expr(
         APOST => {
             op_apost(vm, operand)?;
         }
-        // INTERN => {
-        //     // op_intern(vm, &operand)?;
-        // }
+        INTERN => {
+            op_intern(vm, operand)?;
+        }
         SYMBOL => {
             op_symbol(vm, operand)?;
         }
@@ -422,12 +422,12 @@ pub(crate) fn consume_expr(
         HASH => {
             op_hash(vm, operand)?;
         }
-        // HASHADD => {
-        //     // op_hashadd(vm, &operand)?;
-        // }
-        // HASHCAT => {
-        //     // op_hashcat(vm, &operand)?;
-        // }
+        HASHADD => {
+            op_hashadd(vm, operand)?;
+        }
+        HASHCAT => {
+            op_hashcat(vm, operand)?;
+        }
         LAMBDA => {
             op_lambda(vm, operand)?;
         }
@@ -695,6 +695,192 @@ pub(crate) fn op_setgv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let val = vm.get_current_regs_cloned(a as usize)?;
     let sym = vm.current_irep.syms[b as usize].clone();
     vm.globals.insert(sym.name.clone(), val);
+    Ok(())
+}
+
+pub(crate) fn op_argary(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bs()?;
+    let m1 = ((b >> 11) & 0x3f) as usize;
+    let r = (b >> 10) & 0x1;
+    let m2 = ((b >> 5) & 0x1f) as usize;
+    let lv = (b & 0xf) as usize;
+
+    // The arguments of the frame this super belongs to start one past its self.
+    let base = if lv == 0 {
+        vm.current_regs_offset + 1
+    } else {
+        let mut environ = vm
+            .upper
+            .as_ref()
+            .ok_or_else(|| Error::internal("op_argary expects upper env"))?;
+        for _ in 0..(lv - 1) {
+            environ = environ
+                .upper
+                .as_ref()
+                .ok_or_else(|| Error::internal("op_argary failed to find upvar"))?;
+        }
+        environ.current_regs_offset + 1
+    };
+
+    let at = |vm: &VM, i: usize| -> Rc<RObject> {
+        vm.regs[base + i]
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| Rc::new(RObject::nil()))
+    };
+
+    let mut args: Vec<Rc<RObject>> = Vec::with_capacity(m1 + m2);
+    for i in 0..m1 {
+        args.push(at(vm, i));
+    }
+    if r != 0 {
+        let rest = at(vm, m1);
+        match &rest.value {
+            RValue::Array(ary) => args.extend(ary.borrow().iter().cloned()),
+            RValue::Nil => {}
+            _ => args.push(rest),
+        }
+        for i in 0..m2 {
+            args.push(at(vm, m1 + 1 + i));
+        }
+    } else {
+        for i in 0..m2 {
+            args.push(at(vm, m1 + i));
+        }
+    }
+
+    vm.current_regs()[a as usize].replace(Rc::new(RObject::array(args)));
+    Ok(())
+}
+
+pub(crate) fn op_setmcnst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let name = vm.current_irep.syms[b as usize].name.clone();
+    let val = vm.get_current_regs_cloned(a as usize)?;
+    let recv = vm.get_current_regs_cloned(a as usize + 1)?;
+    let module = match &recv.value {
+        RValue::Class(klass) => klass.module.clone(),
+        RValue::Module(module) => module.clone(),
+        _ => return Err(Error::RuntimeError("not a class/module".to_string())),
+    };
+    module.consts.borrow_mut().insert(name, val);
+    Ok(())
+}
+
+pub(crate) fn op_arypush(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let mut pushed = Vec::with_capacity(b as usize);
+    for i in 0..b as usize {
+        pushed.push(vm.get_current_regs_cloned(a as usize + 1 + i)?);
+    }
+    let target = vm.get_current_regs_cloned(a as usize)?;
+    match &target.value {
+        RValue::Array(ary) => ary.borrow_mut().extend(pushed),
+        _ => return Err(Error::RuntimeError("not an array".to_string())),
+    }
+    Ok(())
+}
+
+pub(crate) fn op_arysplat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let val = vm.get_current_regs_cloned(a)?;
+    let spread = match &val.value {
+        RValue::Array(_) => val,
+        RValue::Nil => Rc::new(RObject::array(vec![])),
+        _ => Rc::new(RObject::array(vec![val])),
+    };
+    vm.current_regs()[a].replace(spread);
+    Ok(())
+}
+
+pub(crate) fn op_intern(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let val = vm.get_current_regs_cloned(a)?;
+    let name: String = val.as_ref().try_into()?;
+    vm.current_regs()[a].replace(Rc::new(RObject::symbol(RSym::new(name))));
+    Ok(())
+}
+
+pub(crate) fn op_hashadd(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let a = a as usize;
+    let mut added = Vec::with_capacity(b as usize);
+    for i in 0..b as usize {
+        let key = vm.get_current_regs_cloned(a + 1 + i * 2)?;
+        let val = vm.get_current_regs_cloned(a + 2 + i * 2)?;
+        added.push((key, val));
+    }
+    let target = vm.get_current_regs_cloned(a)?;
+    match &target.value {
+        RValue::Hash(hash) => {
+            let mut hash = hash.borrow_mut();
+            for (key, val) in added {
+                hash.insert(key.as_hash_key()?, (key, val));
+            }
+        }
+        _ => return Err(Error::RuntimeError("not a hash".to_string())),
+    }
+    Ok(())
+}
+
+pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let other = vm.get_current_regs_cloned(a + 1)?;
+    let merged = match &other.value {
+        RValue::Hash(hash) => hash.borrow().clone(),
+        RValue::Nil => RHashMap::default(),
+        _ => return Err(Error::RuntimeError("not a hash".to_string())),
+    };
+    let target = vm.get_current_regs_cloned(a)?;
+    match &target.value {
+        RValue::Hash(hash) => {
+            let mut hash = hash.borrow_mut();
+            for (k, v) in merged.into_iter() {
+                hash.insert(k, v);
+            }
+        }
+        _ => return Err(Error::RuntimeError("not a hash".to_string())),
+    }
+    Ok(())
+}
+
+pub(crate) fn op_getcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let key = vm.current_irep.syms[b as usize].name.clone();
+    let this = vm.getself()?;
+    let mut klass = Some(this.get_class(vm));
+    let mut found = None;
+    while let Some(k) = klass {
+        if let Some(val) = k.module.cvars.borrow().get(&key) {
+            found = Some(val.clone());
+            break;
+        }
+        klass = k.super_class.clone();
+    }
+    let val = found.unwrap_or_else(|| Rc::new(RObject::nil()));
+    vm.current_regs()[a as usize].replace(val);
+    Ok(())
+}
+
+pub(crate) fn op_setcv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let key = vm.current_irep.syms[b as usize].name.clone();
+    let val = vm.get_current_regs_cloned(a as usize)?;
+    let this = vm.getself()?;
+    let mut klass = this.get_class(vm);
+    // An assignment finds the variable in a superclass before making a new one.
+    let mut target = klass.clone();
+    loop {
+        if klass.module.cvars.borrow().contains_key(&key) {
+            target = klass.clone();
+            break;
+        }
+        match klass.super_class.clone() {
+            Some(s) => klass = s,
+            None => break,
+        }
+    }
+    target.module.cvars.borrow_mut().insert(key, val);
     Ok(())
 }
 
@@ -1321,12 +1507,26 @@ pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .clone()
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
-    let args = (0..b)
-        .map(|i| {
-            vm.get_current_regs_cloned((a + i + 1) as usize)
-                .expect("args too short for super")
-        })
-        .collect::<Vec<_>>();
+    // An argument count of 15 means ARGARY packed them into one array.
+    let args = if (b & 0x0f) == 0x0f {
+        let packed = vm.get_current_regs_cloned(a as usize + 1)?;
+        match &packed.value {
+            RValue::Array(ary) => ary.borrow().clone(),
+            _ => vec![packed],
+        }
+    } else {
+        (0..b)
+            .map(|i| {
+                vm.get_current_regs_cloned((a + i + 1) as usize)
+                    .expect("args too short for super")
+            })
+            .collect::<Vec<_>>()
+    };
+    let b = args.len() as u16;
+    // The callee reads its arguments from the registers after the receiver.
+    for (i, arg) in args.iter().enumerate() {
+        vm.current_regs()[a as usize + 1 + i].replace(arg.clone());
+    }
 
     let klass = match &recv.value {
         RValue::Instance(ins) => ins.class.clone(),

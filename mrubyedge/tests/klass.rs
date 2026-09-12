@@ -263,3 +263,45 @@ fn class_can_have_singleton_instance_variables() {
         .expect("get_world should return string");
     assert_eq!(value, "hello");
 }
+
+#[test]
+fn scoped_constant_assignment_test() {
+    let code = "
+class Config
+end
+
+Config::LIMIT = 12
+Config::LIMIT
+    ";
+    let binary = mrbc_compile("setmcnst", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 12);
+}
+
+#[test]
+fn super_without_arguments_forwards_them_test() {
+    let code = "
+class Base
+  def twice(n)
+    n * 2
+  end
+end
+
+class Sub < Base
+  def twice(n)
+    super
+  end
+end
+
+Sub.new.twice(21)
+    ";
+    let binary = mrbc_compile("zsuper", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 42);
+}

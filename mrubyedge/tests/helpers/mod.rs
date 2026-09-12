@@ -6,14 +6,14 @@ use mrubyedge::yamrb::value::RObject;
 
 pub use mrubyedge::yamrb::helpers::mrb_funcall;
 
-pub(crate) fn mrbc_compile(_fname: &'static str, code: &'static str) -> Vec<u8> {
+pub(crate) fn mrbc_compile(_fname: &str, code: &str) -> Vec<u8> {
     unsafe {
         let mut context = mruby_compiler2_sys::MRubyCompiler2Context::new();
         context.compile(code).unwrap()
     }
 }
 
-pub(crate) fn mrbc_compile_debug(_fname: &'static str, code: &'static str) -> Vec<u8> {
+pub(crate) fn mrbc_compile_debug(_fname: &str, code: &str) -> Vec<u8> {
     unsafe {
         let mut context = mruby_compiler2_sys::MRubyCompiler2Context::new();
         context.dump_bytecode(code).unwrap();
@@ -35,12 +35,12 @@ pub(crate) fn string(s: &str) -> Rc<RObject> {
 // Rustの値で検査する」の形で書く。その4段のうち真ん中2つをここに畳む。
 
 /// Rubyを走らせて戻り値を返す。実行が失敗したらpanicする。
-pub(crate) fn run(code: &'static str) -> Rc<RObject> {
+pub(crate) fn run(code: &str) -> Rc<RObject> {
     try_run(code).unwrap_or_else(|e| panic!("実行が失敗した: {e:?}\n--- source ---\n{code}"))
 }
 
 /// Rubyを走らせる。実行の失敗をそのまま返す。
-pub(crate) fn try_run(code: &'static str) -> Result<Rc<RObject>, String> {
+pub(crate) fn try_run(code: &str) -> Result<Rc<RObject>, String> {
     let binary = mrbc_compile("compiled", code);
     #[cfg(feature = "opcode-coverage")]
     mrubyedge::yamrb::coverage::reset_local();
@@ -54,7 +54,7 @@ pub(crate) fn try_run(code: &'static str) -> Result<Rc<RObject>, String> {
 /// **opcodeの名前は常に検査する。** `opcode-coverage` featureが無いときは
 /// 踏んだかどうかを測れないが、綴りが表に無ければその場で落とす。名前を
 /// 間違えたテストが黙って通り続けるのがいちばん困るので。
-pub(crate) fn run_covering(code: &'static str, opcodes: &[&str]) -> Rc<RObject> {
+pub(crate) fn run_covering(code: &str, opcodes: &[&str]) -> Rc<RObject> {
     assert!(!opcodes.is_empty(), "踏むopcodeを1つ以上挙げること");
     for name in opcodes {
         assert!(

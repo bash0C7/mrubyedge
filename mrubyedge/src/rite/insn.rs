@@ -5,11 +5,11 @@ use crate::Error;
 #[derive(Copy, Clone, Debug)]
 pub enum Fetched {
     Z,
-    B(u8),
-    BB(u8, u8),
-    BBB(u8, u8, u8),
-    BS(u8, u16),
-    BSS(u8, u16, u16),
+    B(u16),
+    BB(u16, u16),
+    BBB(u16, u16, u16),
+    BS(u16, u16),
+    BSS(u16, u16, u16),
     S(u16),
     W(u32), // u24 in real layout
 }
@@ -24,35 +24,35 @@ impl Fetched {
         }
     }
 
-    pub fn as_b(self) -> FetchResult<u8> {
+    pub fn as_b(self) -> FetchResult<u16> {
         match self {
             Fetched::B(a) => Ok(a),
             _ => Err(Error::internal("invaid operand")),
         }
     }
 
-    pub fn as_bb(self) -> FetchResult<(u8, u8)> {
+    pub fn as_bb(self) -> FetchResult<(u16, u16)> {
         match self {
             Fetched::BB(a, b) => Ok((a, b)),
             _ => Err(Error::internal("invaid operand")),
         }
     }
 
-    pub fn as_bbb(self) -> FetchResult<(u8, u8, u8)> {
+    pub fn as_bbb(self) -> FetchResult<(u16, u16, u16)> {
         match self {
             Fetched::BBB(a, b, c) => Ok((a, b, c)),
             _ => Err(Error::internal("invalid operand")),
         }
     }
 
-    pub fn as_bs(self) -> FetchResult<(u8, u16)> {
+    pub fn as_bs(self) -> FetchResult<(u16, u16)> {
         match self {
             Fetched::BS(a, b) => Ok((a, b)),
             _ => Err(Error::internal("invalid operand")),
         }
     }
 
-    pub fn as_bss(self) -> FetchResult<(u8, u16, u16)> {
+    pub fn as_bss(self) -> FetchResult<(u16, u16, u16)> {
         match self {
             Fetched::BSS(a, b, c) => Ok((a, b, c)),
             _ => Err(Error::internal("invalid operand")),
@@ -483,106 +483,129 @@ impl Debug for OpCode {
     }
 }
 
-fn fetch_z(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.is_empty() {
-        return Err(Error::internal("byte code too short"));
-    }
-    *bin = &bin[1..];
-    Ok(Fetched::Z)
-}
-fn fetch_b(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 2 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let a = bin[1];
-    let operand = Fetched::B(a);
-
-    *bin = &bin[2..];
-    Ok(operand)
-}
-fn fetch_bb(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 3 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let a = bin[1];
-    let b = bin[2];
-    let operand = Fetched::BB(a, b);
-
-    *bin = &bin[3..];
-    Ok(operand)
-}
-fn fetch_bbb(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 4 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let a = bin[1];
-    let b = bin[2];
-    let c = bin[3];
-    let operand = Fetched::BBB(a, b, c);
-
-    *bin = &bin[4..];
-    Ok(operand)
-}
-fn fetch_bs(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 4 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let a = bin[1];
-    let s = ((bin[2] as u16) << 8) | bin[3] as u16;
-    let operand = Fetched::BS(a, s);
-
-    *bin = &bin[4..];
-    Ok(operand)
-}
-fn fetch_bss(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 6 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let a = bin[1];
-    let s1 = ((bin[2] as u16) << 8) | bin[3] as u16;
-    let s2 = ((bin[4] as u16) << 8) | bin[5] as u16;
-    let operand = Fetched::BSS(a, s1, s2);
-
-    *bin = &bin[6..];
-    Ok(operand)
-}
-fn fetch_s(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 3 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let s = ((bin[1] as u16) << 8) | bin[2] as u16;
-    let operand = Fetched::S(s);
-
-    *bin = &bin[3..];
-    Ok(operand)
-}
-fn fetch_w(bin: &mut &[u8]) -> Result<Fetched, Error> {
-    if bin.len() < 4 {
-        return Err(Error::internal("byte code too short"));
-    }
-    let w = ((bin[1] as u32) << 16) | ((bin[2] as u32) << 8) | bin[3] as u32;
-    let operand = Fetched::W(w);
-
-    *bin = &bin[4..];
-    Ok(operand)
+// オペランドの並び。mruby 4.0の`ops.h`が各命令に付けている記号と同じ。
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Shape {
+    Z,
+    B,
+    BB,
+    BBB,
+    BS,
+    BSS,
+    S,
+    W,
 }
 
-const Z: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_z;
-const B: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_b;
-const BB: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_bb;
-const BBB: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_bbb;
-const BS: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_bs;
-const BSS: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_bss;
-const S: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_s;
-const W: fn(&mut &[u8]) -> Result<Fetched, Error> = fetch_w;
-
-type FetchFn = fn(&mut &[u8]) -> Result<Fetched, Error>;
+const Z: Shape = Shape::Z;
+const B: Shape = Shape::B;
+const BB: Shape = Shape::BB;
+const BBB: Shape = Shape::BBB;
+const BS: Shape = Shape::BS;
+const BSS: Shape = Shape::BSS;
+const S: Shape = Shape::S;
+const W: Shape = Shape::W;
 
 #[rustfmt::skip]
-pub const FETCH_TABLE: [FetchFn; OpCode::NumberOfOpcode as usize] = [
+pub const OPERAND_SHAPE: [Shape; OpCode::NumberOfOpcode as usize] = [
     Z, BB, BB, BB, BB, B, B, B, B, B, B, B, B, B, BS, BSS, BB, B, B, B, B, BB, BB, BB, BB, BB,
     BB, BB, BB, BB, BB, BB, BB, BBB, BBB, B, BB, B, S, BS, BS, BS, S, B, BB, B, B, BBB, BB, BBB,
     BBB, BB, BBB, Z, BB, BB, BS, W, BB, Z, BB, B, B, Z, Z, Z, Z, B, BS, B, BB, B, BB, BBB, BBB,
     B, B, B, B, B, B, B, BB, BBB, B, BB, B, BBB, BBB, BBB, B, BB, BB, B, BB, BB, B, BB, BB, BB,
     B, B, B, BB, BB, BB, BB, BBB, BBB, BB, B, B, B, BBB, B, Z, Z, Z, Z,
 ];
+
+fn read_b(body: &[u8], at: usize) -> Result<u16, Error> {
+    body.get(at)
+        .map(|b| *b as u16)
+        .ok_or_else(|| Error::internal("byte code too short"))
+}
+
+fn read_s(body: &[u8], at: usize) -> Result<u16, Error> {
+    let hi = read_b(body, at)?;
+    let lo = read_b(body, at + 1)?;
+    Ok((hi << 8) | lo)
+}
+
+fn read_w(body: &[u8], at: usize) -> Result<u32, Error> {
+    let a = read_b(body, at)? as u32;
+    let b = read_b(body, at + 1)? as u32;
+    let c = read_b(body, at + 2)? as u32;
+    Ok((a << 16) | (b << 8) | c)
+}
+
+/// 1命令ぶんのオペランドを読む。`bin`の先頭はopcodeのバイト。
+///
+/// `ext`はその命令に前置きが付いていたかで、1なら第1オペランド、2なら第2、
+/// 3なら両方が16bitになる。どの並びがどう変わるかはmrubyの
+/// `include/mruby/opcode.h`のFETCH_*_1・_2・_3のとおり。並びによっては
+/// 前置きが付いても幅が変わらない(`B`にEXT3が付いても8bitのまま、など)。
+fn fetch_shape(shape: Shape, bin: &mut &[u8], ext: u8) -> Result<Fetched, Error> {
+    let body = &bin[1..];
+    let (operand, size) = match (shape, ext) {
+        (Shape::Z, _) => (Fetched::Z, 0),
+        (Shape::B, 1) => (Fetched::B(read_s(body, 0)?), 2),
+        (Shape::B, _) => (Fetched::B(read_b(body, 0)?), 1),
+        (Shape::BB, 1) => (Fetched::BB(read_s(body, 0)?, read_b(body, 2)?), 3),
+        (Shape::BB, 2) => (Fetched::BB(read_b(body, 0)?, read_s(body, 1)?), 3),
+        (Shape::BB, 3) => (Fetched::BB(read_s(body, 0)?, read_s(body, 2)?), 4),
+        (Shape::BB, _) => (Fetched::BB(read_b(body, 0)?, read_b(body, 1)?), 2),
+        (Shape::BBB, 1) => (
+            Fetched::BBB(read_s(body, 0)?, read_b(body, 2)?, read_b(body, 3)?),
+            4,
+        ),
+        (Shape::BBB, 2) => (
+            Fetched::BBB(read_b(body, 0)?, read_s(body, 1)?, read_b(body, 3)?),
+            4,
+        ),
+        (Shape::BBB, 3) => (
+            Fetched::BBB(read_s(body, 0)?, read_s(body, 2)?, read_b(body, 4)?),
+            5,
+        ),
+        (Shape::BBB, _) => (
+            Fetched::BBB(read_b(body, 0)?, read_b(body, 1)?, read_b(body, 2)?),
+            3,
+        ),
+        (Shape::BS, 1) | (Shape::BS, 3) => (Fetched::BS(read_s(body, 0)?, read_s(body, 2)?), 4),
+        (Shape::BS, _) => (Fetched::BS(read_b(body, 0)?, read_s(body, 1)?), 3),
+        (Shape::BSS, 1) | (Shape::BSS, 3) => (
+            Fetched::BSS(read_s(body, 0)?, read_s(body, 2)?, read_s(body, 4)?),
+            6,
+        ),
+        (Shape::BSS, _) => (
+            Fetched::BSS(read_b(body, 0)?, read_s(body, 1)?, read_s(body, 3)?),
+            5,
+        ),
+        (Shape::S, _) => (Fetched::S(read_s(body, 0)?), 2),
+        (Shape::W, _) => (Fetched::W(read_w(body, 0)?), 3),
+    };
+    *bin = &bin[1 + size..];
+    Ok(operand)
+}
+
+/// EXTの前置きを含めて1命令ぶん読む。前置きが在れば`ext`に1・2・3を返す。
+///
+/// **前置きは命令の一部として扱う。** 読み飛ばすだけにすると、後続の命令の
+/// オペランドを狭いまま読んで、そこから先をまるごと取り違える。
+pub fn fetch_next(bin: &mut &[u8]) -> Result<(OpCode, Fetched, u8), Error> {
+    let mut ext = 0u8;
+    loop {
+        let Some(&byte) = bin.first() else {
+            return Err(Error::internal("byte code too short"));
+        };
+        let code = OpCode::try_from(byte)?;
+        let level = match code {
+            OpCode::EXT1 => 1,
+            OpCode::EXT2 => 2,
+            OpCode::EXT3 => 3,
+            _ => {
+                let fetched = fetch_shape(OPERAND_SHAPE[byte as usize], bin, ext)?;
+                return Ok((code, fetched, ext));
+            }
+        };
+        if ext != 0 {
+            return Err(Error::internal("operand-width prefix repeated"));
+        }
+        ext = level;
+        *bin = &bin[1..];
+    }
+}

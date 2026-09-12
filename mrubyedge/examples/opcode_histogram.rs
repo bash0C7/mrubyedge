@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use mrubyedge::rite;
-use mrubyedge::rite::insn::{FETCH_TABLE, OpCode};
+use mrubyedge::rite::insn;
 
 fn main() {
     let path = std::env::args()
@@ -26,31 +26,29 @@ fn main() {
     for (i, irep) in rite.irep.iter().enumerate() {
         let ilen = irep.insn.len();
         let mut insns = irep.insn;
-        // FETCH_TABLEの関数がopcodeバイトごと消費する(vm.rsのinterpret_insnと同じ)
         while !insns.is_empty() {
             let at = ilen - insns.len();
-            let byte = insns[0];
-            let Ok(op) = OpCode::try_from(byte) else {
-                eprintln!("irep {i} +{at}: byte {byte} is not an opcode");
-                broken += 1;
-                break;
-            };
-            // EXT1/EXT2/EXT3は後続命令のオペランド幅を広げる前置き。
-            // FETCH_TABLEはそれを解釈しないので、ここから先は誤読になる。
-            // 黙って数え続けると嘘の数字が出るので、止めて申告する。
-            if matches!(op, OpCode::EXT1 | OpCode::EXT2 | OpCode::EXT3) {
-                eprintln!("irep {i} +{at}: {op:?} の後はデコードできない");
-                broken += 1;
-                break;
+            match insn::fetch_next(&mut insns) {
+                Ok((op, _, ext)) => {
+                    // EXTの前置きも1件として数える。命令の読み方を変えるので、
+                    // 「そのチャンクが前置きを使った」は見えているほうがよい。
+                    match ext {
+                        1 => *seen.entry("EXT1".to_string()).or_insert(0) += 1,
+                        2 => *seen.entry("EXT2".to_string()).or_insert(0) += 1,
+                        3 => *seen.entry("EXT3".to_string()).or_insert(0) += 1,
+                        _ => {}
+                    }
+                    *seen.entry(format!("{op:?}")).or_insert(0) += 1;
+                }
+                Err(e) => {
+                    eprintln!("irep {i} +{at}: デコードできない ({e:?})");
+                    broken += 1;
+                    break;
+                }
             }
-            if FETCH_TABLE[byte as usize](&mut insns).is_err() {
-                eprintln!("irep {i} +{at}: cannot fetch operands of {op:?}");
-                broken += 1;
-                break;
-            }
-            *seen.entry(format!("{op:?}")).or_insert(0) += 1;
         }
     }
+
     for (name, n) in &seen {
         println!("{name}\t{n}");
     }

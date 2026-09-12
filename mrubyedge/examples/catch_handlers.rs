@@ -2,7 +2,7 @@
 // 命令境界に乗っているかを見る。乗っていないと load_irep_1 の index_of が
 // code.len() へ落ちる。
 use mrubyedge::rite;
-use mrubyedge::rite::insn::{FETCH_TABLE, OpCode};
+use mrubyedge::rite::insn;
 
 fn main() {
     let path = std::env::args()
@@ -25,8 +25,7 @@ fn main() {
         let mut insns = irep.insn;
         while !insns.is_empty() {
             starts.push(ilen - insns.len());
-            let byte = insns[0];
-            if OpCode::try_from(byte).is_err() || FETCH_TABLE[byte as usize](&mut insns).is_err() {
+            if insn::fetch_next(&mut insns).is_err() {
                 break;
             }
         }

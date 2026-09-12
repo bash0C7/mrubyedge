@@ -130,3 +130,67 @@ fn a_chunk_whose_pool_holds_a_bignum_reads_the_entries_after_it_test() {
         )
     );
 }
+
+#[test]
+fn a_chunk_that_does_not_start_with_rite_is_refused_test() {
+    let binary = mrbc_compile("compiled", "1 + 1");
+
+    for ident in [b"ZITE", b"RITF", b"\0\0\0\0"] {
+        let mut chunk = binary.clone();
+        chunk[0..4].copy_from_slice(ident);
+
+        // Assert
+        let err = mrubyedge::rite::load(&chunk).unwrap_err();
+        assert!(matches!(err, mrubyedge::rite::Error::InvalidFormat));
+    }
+}
+
+#[test]
+fn a_chunk_from_a_newer_minor_version_is_refused_test() {
+    let binary = mrbc_compile("compiled", "1 + 1");
+
+    let mut chunk = binary.clone();
+    chunk[6..8].copy_from_slice(b"01");
+    let err = mrubyedge::rite::load(&chunk).unwrap_err();
+    assert!(matches!(err, mrubyedge::rite::Error::InvalidFormat));
+
+    // An older or equal minor version stays readable.
+    let mut chunk = binary.clone();
+    chunk[6..8].copy_from_slice(b"00");
+    assert!(mrubyedge::rite::load(&chunk).is_ok());
+}
+
+#[test]
+fn a_chunk_followed_by_other_bytes_reads_only_the_chunk_test() {
+    let binary = mrbc_compile("compiled", "1 + 1");
+
+    let mut chunk = binary.clone();
+    chunk.extend_from_slice(b"trailing garbage");
+
+    let mut rite = mrubyedge::rite::load(&chunk).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 2);
+}
+
+#[test]
+fn a_chunk_whose_sections_run_out_before_the_end_marker_still_reads_test() {
+    let binary = mrbc_compile("compiled", "1 + 1");
+
+    // The END section is the last eight bytes; relabel it so the scan meets an
+    // ident it does not know while the IREP section before it is already read.
+    let mut chunk = binary.clone();
+    let end = chunk.len() - 8;
+    chunk[end..end + 4].copy_from_slice(b"XXXX");
+
+    let mut rite = mrubyedge::rite::load(&chunk).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+
+    // Assert
+    assert_eq!(result, 2);
+}

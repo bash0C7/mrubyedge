@@ -86,15 +86,22 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
         return Err(Error::TooShort);
     }
     let binary_header = RiteBinaryHeader::from_bytes(&head[0..binheader_size])?;
-    // Only mruby 4.0 (RITE0400) chunks decode with this opcode table.
+    if &binary_header.ident != b"RITE" {
+        return Err(Error::InvalidFormat);
+    }
     if &binary_header.major_version != b"04" {
         return Err(Error::UnsupportedVersion(binary_header.major_version));
     }
+    if binary_header.minor_version > *b"00" {
+        return Err(Error::InvalidFormat);
+    }
+    let binsize = be32_to_u32(binary_header.size) as usize;
+    if src.len() < binsize {
+        return Err(Error::TooShort);
+    }
     rite.binary_header = binary_header;
-    size -= binheader_size;
-    head = &head[binheader_size..];
-
-    // let binsize: u32 = be32_to_u32(rite.binary_header.size);
+    size = binsize - binheader_size;
+    head = &head[binheader_size..binsize];
 
     let irep_header_size = mem::size_of::<SectionIrepHeader>();
     if size < irep_header_size {
@@ -123,11 +130,7 @@ pub fn load<'a>(src: &'a [u8]) -> Result<Rite<'a>, Error> {
                 let cur = section_end(head)?;
                 head = &head[cur..];
             }
-            _ => {
-                eprintln!("{:?}", chrs);
-                eprint!("{:?}", head);
-                return Err(Error::InvalidFormat);
-            }
+            _ => break,
         }
     }
 

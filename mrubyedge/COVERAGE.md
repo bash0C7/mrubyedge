@@ -12,11 +12,23 @@ A list of currently supported classes and methods, based on the implementations 
 
 This VM decodes the opcode table mruby 4.0 numbers, and `rite::load` refuses a chunk whose header says anything but `04` — mruby 3.x bytecode has to be recompiled. See `docs/table.html` for the per-opcode status.
 
+Class variables, a constant assigned through a scope, a symbol built from an interpolated string, both array splat forms, both hash spread forms and a bare `super` run as well.
+
 The opcodes mruby 4.0 added over 3.x: `GETIDX0`, `MATCHERR`, `SSEND0`, `SEND0`, `BLKCALL`, `RETSELF`, `RETNIL`, `RETTRUE`, `RETFALSE`, `ADDILV`, `SUBILV`, `TDEF`, `SDEF`; `ENTER` reads the 24-bit flags, including `&nil` (a method refusing a block). `LOADTRUE`/`LOADFALSE`/`LOADI8` are 3.x's `LOADT`/`LOADF`/`LOADI` renamed.
+
+Five opcodes have no implementation. mruby 4.0's compiler emits none of them, so no Ruby reaches one; a chunk that carries one gets an error rather than a crash.
+
+| Not implemented | |
+|---|---|
+| `GETSV`, `SETSV` | the special-variable pair. `codegen.c` has no site that emits either; `$~` and `$1` compile to a global read |
+| `ASET` | `codegen.c` has no site that emits it. An index assignment compiles to `SETIDX` |
+| `DEBUG` | `codegen.c` has no site that emits it |
+| `ERR` | `raise_error()` emits it for a misplaced `break`, `next`, `redo` or `retry`, but the parser rejects those before code generation |
 
 | Note | |
 |---|---|
 | `MATCHERR` | raises `NoMatchingPatternError`; the rest of pattern matching (`deconstruct`, `deconstruct_keys`) is not provided, so only value patterns in `case/in` run end to end |
+| `CALL`, `SYMBOL` | implemented, but mruby 4.0's compiler emits neither: `CALL` lives in a hand-built IREP inside mruby itself, and the one `SYMBOL` site needs an interpolated symbol of exactly one string part, which the parser folds away |
 
 ---
 

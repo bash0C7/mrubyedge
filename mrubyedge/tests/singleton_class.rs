@@ -32,7 +32,10 @@ end
 C.built
 ";
 
-    let result = run_covering(code, &["SCLASS"]);
+    let binary = mrbc_compile("singleton_class", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

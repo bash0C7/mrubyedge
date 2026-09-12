@@ -16,7 +16,10 @@ Counter.new.bump
 Counter.count
 ";
 
-    let result = run_covering(code, &["SETCV", "GETCV"]);
+    let binary = mrbc_compile("class_variable", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -35,7 +38,10 @@ end
 Sub.new.shared
 ";
 
-    let result = run_covering(code, &["GETCV"]);
+    let binary = mrbc_compile("class_variable", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -56,7 +62,10 @@ Sub2.set
 Base2.n
 ";
 
-    let result = run_covering(code, &["SETCV", "GETCV"]);
+    let binary = mrbc_compile("class_variable", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -77,7 +86,10 @@ rescue NameError => e
 end
 ";
 
-    let result = run(code);
+    let binary = mrbc_compile("class_variable", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert

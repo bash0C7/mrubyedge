@@ -11,7 +11,10 @@ g = {**h, b: 2}
 g[:a] + g[:b]
 ";
 
-    let result = run_covering(code, &["HASHCAT"]);
+    let binary = mrbc_compile("hash_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -26,7 +29,10 @@ g = {**h, b: 2, c: 3}
 g.size
 ";
 
-    let result = run_covering(code, &["HASHADD"]);
+    let binary = mrbc_compile("hash_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -41,7 +47,10 @@ g = {**h, b: 9}
 g[:b]
 ";
 
-    let result = run_covering(code, &["HASHADD"]);
+    let binary = mrbc_compile("hash_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -57,7 +66,10 @@ g = {**h, **i}
 g[:a] + g[:b]
 ";
 
-    let result = run_covering(code, &["HASHCAT"]);
+    let binary = mrbc_compile("hash_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

@@ -67,13 +67,6 @@ impl Breadcrumb {
     }
 }
 
-#[cfg(feature = "opcode-coverage")]
-impl Drop for VM {
-    fn drop(&mut self) {
-        crate::yamrb::coverage::flush();
-    }
-}
-
 pub struct VM {
     pub irep: Rc<IREP>,
 
@@ -819,13 +812,6 @@ fn interpret_insn(mut insns: &[u8]) -> Vec<Op> {
     while !insns.is_empty() {
         let pos = total - insns.len();
         let (opcode, fetched, ext) = insn::fetch_next(&mut insns).unwrap();
-        #[cfg(feature = "opcode-coverage")]
-        match ext {
-            1 => crate::yamrb::coverage::record(insn::OpCode::EXT1),
-            2 => crate::yamrb::coverage::record(insn::OpCode::EXT2),
-            3 => crate::yamrb::coverage::record(insn::OpCode::EXT3),
-            _ => {}
-        }
         let _ = ext;
         let len = (total - insns.len()) - pos;
         ops.push(Op::new(opcode, fetched, pos, len));

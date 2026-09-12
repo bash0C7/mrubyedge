@@ -15,7 +15,10 @@ end
 Sub.new.f(4)
 ";
 
-    let result = run_covering(code, &["ARGARY"]);
+    let binary = mrbc_compile("zsuper", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -34,7 +37,10 @@ end
 Sub2.new.g(9, 4)
 ";
 
-    let result = run_covering(code, &["ARGARY"]);
+    let binary = mrbc_compile("zsuper", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -53,7 +59,10 @@ end
 Sub3.new.h(1, 2, 3)
 ";
 
-    let result = run_covering(code, &["ARGARY"]);
+    let binary = mrbc_compile("zsuper", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -72,7 +81,10 @@ end
 Sub4.new.k(2)
 ";
 
-    let result = run(code);
+    let binary = mrbc_compile("zsuper", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

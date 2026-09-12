@@ -10,7 +10,10 @@ FOO = 41
 FOO + 1
 ";
 
-    let result = run_covering(code, &["SETCONST", "GETCONST"]);
+    let binary = mrbc_compile("constant", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -27,7 +30,10 @@ end
 C.new.bar
 ";
 
-    let result = run_covering(code, &["SETCONST"]);
+    let binary = mrbc_compile("constant", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

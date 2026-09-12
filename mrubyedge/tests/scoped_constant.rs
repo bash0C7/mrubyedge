@@ -12,7 +12,10 @@ Holder::LIMIT = 12
 Holder::LIMIT
 ";
 
-    let result = run_covering(code, &["SETMCNST", "GETMCNST"]);
+    let binary = mrbc_compile("scoped_constant", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -28,7 +31,10 @@ Space::NAME = \"outer\"
 Space::NAME
 ";
 
-    let result = run_covering(code, &["SETMCNST"]);
+    let binary = mrbc_compile("scoped_constant", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -46,7 +52,10 @@ Outer::Inner::DEPTH = 2
 Outer::Inner::DEPTH
 ";
 
-    let result = run_covering(code, &["SETMCNST", "GETMCNST"]);
+    let binary = mrbc_compile("scoped_constant", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

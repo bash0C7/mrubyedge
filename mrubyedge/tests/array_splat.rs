@@ -11,7 +11,10 @@ b = [*a, 3]
 b.join(\",\")
 ";
 
-    let result = run_covering(code, &["ARYPUSH"]);
+    let binary = mrbc_compile("array_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -26,7 +29,10 @@ b = [1, *a, 4, 5]
 b.join(\",\")
 ";
 
-    let result = run_covering(code, &["ARYPUSH"]);
+    let binary = mrbc_compile("array_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -43,7 +49,10 @@ end
 spread.join(\",\")
 ";
 
-    let result = run_covering(code, &["ARYSPLAT"]);
+    let binary = mrbc_compile("array_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -60,7 +69,10 @@ end
 spread_one.join(\",\")
 ";
 
-    let result = run_covering(code, &["ARYSPLAT"]);
+    let binary = mrbc_compile("array_splat", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert

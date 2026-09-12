@@ -37,7 +37,6 @@ harness = false
 [features]
 # テストがどのopcodeを実際に踏んだかを測る。実行時に記録するだけで、
 # 既定では入らない。
-opcode-coverage = []
 default = ["wasi", "mrubyedge-debug"]
 wasi = []
 mruby-hash-fnv = ["dep:fnv"]

@@ -169,8 +169,6 @@ pub(crate) fn consume_expr(
     len: usize,
 ) -> Result<(), Error> {
     use crate::rite::insn::OpCode::*;
-    #[cfg(feature = "opcode-coverage")]
-    crate::yamrb::coverage::record(code);
     match code {
         NOP => {
             op_nop(vm, operand)?;
@@ -249,12 +247,6 @@ pub(crate) fn consume_expr(
         // }
         GETIV => {
             op_getiv(vm, operand)?;
-        }
-        GETSV => {
-            op_getsv(vm, operand)?;
-        }
-        SETSV => {
-            op_setsv(vm, operand)?;
         }
         GETCV => {
             op_getcv(vm, operand)?;
@@ -427,9 +419,6 @@ pub(crate) fn consume_expr(
         AREF => {
             op_aref(vm, operand)?;
         }
-        ASET => {
-            op_aset(vm, operand)?;
-        }
         // ASET => {
         //     // op_aset(vm, &operand)?;
         // }
@@ -525,12 +514,6 @@ pub(crate) fn consume_expr(
         // }
         STOP => {
             op_stop(vm, operand)?;
-        }
-        DEBUG => {
-            op_debug(vm, operand)?;
-        }
-        ERR => {
-            op_err(vm, operand)?;
         }
         // mruby 4.0 (RITE0400)
         GETIDX0 => {
@@ -874,18 +857,6 @@ pub(crate) fn op_setmcnst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         }
     };
     module.consts.borrow_mut().insert(name, val);
-    Ok(())
-}
-
-pub(crate) fn op_getsv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let (a, _b) = operand.as_bb()?;
-    let val = RObject::integer(0).to_refcount_assigned();
-    vm.current_regs()[a as usize].replace(val);
-    Ok(())
-}
-
-pub(crate) fn op_setsv(_vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let (_a, _b) = operand.as_bb()?;
     Ok(())
 }
 
@@ -2135,25 +2106,6 @@ pub(crate) fn op_arysplat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn op_aset(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let (a, b, c) = operand.as_bbb()?;
-    let val = vm.get_current_regs_cloned(a as usize)?;
-    let target = vm.get_current_regs_cloned(b as usize)?;
-    let RValue::Array(ary) = &target.value else {
-        return Err(Error::TaggedError(
-            "TypeError",
-            "no implicit conversion into Array".to_string(),
-        ));
-    };
-    let index = c as usize;
-    let mut ary = ary.borrow_mut();
-    while ary.len() <= index {
-        ary.push(RObject::nil().to_refcount_assigned());
-    }
-    ary[index] = val;
-    Ok(())
-}
-
 pub(crate) fn op_arycat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
     let b = a + 1;
@@ -2731,18 +2683,6 @@ pub(crate) fn op_sdef(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .insert(sym.name.clone(), method);
     vm.current_regs()[a as usize].replace(RObject::symbol(sym).to_refcount_assigned());
     Ok(())
-}
-
-pub(crate) fn op_debug(_vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let (a, b, c) = operand.as_bbb()?;
-    eprintln!("OP_DEBUG {a} {b} {c}");
-    Ok(())
-}
-
-pub(crate) fn op_err(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let a = operand.as_b()? as usize;
-    let message = vm.current_irep.pool[a].as_str().to_string();
-    Err(Error::TaggedError("LocalJumpError", message))
 }
 
 pub(crate) fn op_stop(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {

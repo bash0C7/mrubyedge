@@ -260,7 +260,10 @@ x = [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9]
 x[9]
 "#;
 
-    let result = run_covering(code, &["EXT1"]);
+    let binary = mrbc_compile("ext_operands", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -274,7 +277,10 @@ x = [:s0, :s1, :s2, :s3, :s4, :s5, :s6, :s7, :s8, :s9, :s10, :s11, :s12, :s13, :
 x.size
 "#;
 
-    let result = run_covering(code, &["EXT2"]);
+    let binary = mrbc_compile("ext_operands", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -539,7 +545,10 @@ x = [:s270, :s271, :s272, :s273, :s274, :s275, :s276, :s277, :s278, :s279, :s280
 x.size
 "#;
 
-    let result = run_covering(code, &["EXT3"]);
+    let binary = mrbc_compile("ext_operands", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -553,7 +562,10 @@ a = [5, 6]
 a[1]
 ";
 
-    let result = run(code);
+    let binary = mrbc_compile("ext_operands", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

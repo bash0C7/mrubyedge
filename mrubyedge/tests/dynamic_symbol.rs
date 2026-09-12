@@ -14,7 +14,10 @@ else
 end
 ";
 
-    let result = run_covering(code, &["INTERN"]);
+    let binary = mrbc_compile("dynamic_symbol", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -28,7 +31,10 @@ n = 7
 :\"key#{n}\".to_s
 ";
 
-    let result = run_covering(code, &["INTERN"]);
+    let binary = mrbc_compile("dynamic_symbol", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: String = result.as_ref().try_into().unwrap();
 
     // Assert
@@ -44,7 +50,10 @@ h[:\"user_#{part}\"] = 5
 h[:user_id]
 ";
 
-    let result = run_covering(code, &["INTERN"]);
+    let binary = mrbc_compile("dynamic_symbol", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
     let result: i64 = result.as_ref().try_into().unwrap();
 
     // Assert

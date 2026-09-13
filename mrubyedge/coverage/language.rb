@@ -3,7 +3,7 @@
 # Sibling of coverage/opcodes.rb. That file proves every opcode is reached;
 # this one proves the behaviour behind them is right. Each section is a
 # standalone program and the line above it names the value it must produce.
-# tests/language_coverage.rs compiles each section, runs it, and checks.
+# tests/language_coverage.rs reads this file, compiles each section, runs it, and checks.
 #
 # A section marked broken states the value Ruby gives and what this VM gives
 # instead. The test holds them to the wrong answer on purpose: when one is

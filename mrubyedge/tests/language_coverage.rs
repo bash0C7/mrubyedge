@@ -16,7 +16,7 @@ enum Expect {
 }
 
 fn script() -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/coverage/language.rb");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/coverage/language.rb");
     std::fs::read_to_string(path).unwrap()
 }
 

@@ -2,7 +2,7 @@
 #
 # Each section below is a standalone program. The line above it names the
 # section, the value it evaluates to, and the opcodes compiling it emits.
-# tests/opcode_coverage.rs compiles each section on its own, checks those
+# tests/opcode_coverage.rs reads this file, compiles each section on its own, checks those
 # opcodes are in the chunk, runs it, and checks the value.
 #
 # The whole file is also valid Ruby: the markers are comments.

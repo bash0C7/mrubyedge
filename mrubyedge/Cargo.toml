@@ -1,6 +1,13 @@
 [package]
 name = "mrubyedge"
-version = "2.0.0"
+# このcrateはcrates.ioへ公開せず、常にconsumer側の[patch.crates-io]経由でしか
+# 使われない。versionの役目は実装内容(実際はupstream v2.0.0ベース)を示すこと
+# ではなく、グラフ上のすべてのcrates.io版mrubyedge要求(直接のもの・
+# mrubyedge-serde-jsonなど間接のもの)を1つの実体へ束ねられる値を持つこと。
+# 1.1.13はworkers/uzumibiの`>= 1.1.10`とmrubyedge-serde-json 0.1.2の
+# `1.1.9`(=`>=1.1.9, <2.0.0`)の両方を満たす。rebase前のこのファイルも
+# 同じ理由で、中身が1.1.12よりずっと多くても`version = "1.1.12"`のままだった。
+version = "1.1.13"
 edition = "2024"
 authors = ["Uchio Kondo <udzura@udzura.jp>"]
 description = "mruby/edge is yet another mruby that is specialized for running on WASM"

@@ -1,0 +1,82 @@
+@@|ctl|if/elsif/else|20
+@@|ctl|unless|20
+@@|ctl|case/when value|20
+@@|ctl|case/when class|1
+@@|ctl|case/when range|2
+@@|ctl|case/in value|20
+@@|ctl|case/in array|0
+@@|ctl|case/in hash|0
+@@|ctl|ternary|7
+@@|ctl|while|3
+@@|ctl|until|3
+@@|ctl|for|6
+@@|ctl|loop + break|3
+@@|ctl|next in each|4
+@@|ctl|redo guard|1
+@@|ctl|begin/rescue/else|3
+@@|ctl|begin/ensure value|1
+@@|ctl|retry|2
+@@|ctl|raise/rescue message|"boom"
+@@|?|case19|CRASH
+@@|?|case20|CRASH
+@@|arg|optional arg|3
+@@|arg|rest arg|3
+@@|arg|post arg|ERR Internal("register 3 is not assigned")
+@@|arg|keyword arg|3
+@@|arg|double splat|5
+@@|arg|block arg|7
+@@|arg|yield|6
+@@|arg|block_given?|1
+@@|arg|splat call|PANIC
+@@|arg|double splat call|ERR TypeMismatch
+@@|arg|proc to_proc|3
+@@|arg|lambda|6
+@@|arg|lambda dot call|6
+@@|arg|proc new|2
+@@|arg|method chaining|1
+@@|arg|safe navigation|1
+@@|cls|class + new + ivar|4
+@@|cls|inheritance|1
+@@|cls|super|2
+@@|cls|module method|3
+@@|cls|module include|5
+@@|cls|module extend|6
+@@|cls|attr_accessor|8
+@@|cls|class variable|9
+@@|cls|constant in class|11
+@@|cls|scoped constant|12
+@@|cls|singleton on object|13
+@@|cls|class << self|14
+@@|cls|method_missing|15
+@@|cls|respond_to?|1
+@@|cls|is_a?|1
+@@|cls|nested class|17
+@@|cls|alias|18
+@@|cls|to_s override|"k"
+@@|cls|== override|0
+@@|cls|<=> and sort|1
+@@|lit|string interpolation|"x1y"
+@@|lit|heredoc|3
+@@|lit|symbol|"abc"
+@@|lit|dynamic symbol|"a1"
+@@|lit|array literal|3
+@@|lit|array splat literal|3
+@@|lit|hash literal|2
+@@|lit|hash spread|2
+@@|lit|range inclusive|3
+@@|lit|range exclusive|2
+@@|lit|nested array index|3
+@@|lit|multiple assignment|3
+@@|lit|swap|2
+@@|lit|masgn splat|2
+@@|lit|op assign|3
+@@|lit|or assign|5
+@@|lit|and assign|5
+@@|lit|index assign|9
+@@|lit|hash index assign|3
+@@|lit|frozen string|ERR NoMethodError("undefined method `frozen?` for String")
+@@|lit|integer big|4294967296123
+@@|lit|float|3
+@@|lit|boolean ops|0
+@@|lit|defined?|ERR NoMethodError("undefined method `__defined_const?` for Object")
+@@|lit|global variable|21

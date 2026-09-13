@@ -573,3 +573,31 @@ ewi
 #section kernel_puts_returns_nil | int 1
 puts("").nil? ? 1 : 0
 
+#broken post_argument | int 4 | Internal error: a parameter after a rest parameter is left unassigned
+def cov_post(a, *b, c)
+  a + c
+end
+
+cov_post(1, 2, 3, 4)
+
+#broken masgn_with_post | int 5 | Internal error: APOST with three operands is not implemented
+cov_masgn_src = [1, 2, 3, 4]
+cov_head, *cov_mid, cov_tail = cov_masgn_src
+cov_mid.size + cov_tail
+
+#broken nested_constant_path | int 1 | NameError: a constant two namespaces deep is not found
+module CovOuterNs
+  module CovInnerNs
+    V = 1
+  end
+end
+
+CovOuterNs::CovInnerNs::V
+
+#broken logical_not_on_false | int 1 | NoMethodError: FalseClass has no !
+!false ? 1 : 0
+
+#broken next_inside_ensure | int 2 | evaluates to 0: next inside an ensure skips the ensure body
+cov_next_count = 0
+[1, 2].each { |i| begin; next; ensure; cov_next_count += 1; end }
+cov_next_count

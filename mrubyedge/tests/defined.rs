@@ -4,7 +4,6 @@
 // siblings, so a chunk PicoRuby's mrbc produced needs them to exist. The
 // test harness compiles with 3.3, so these call the helpers by name --
 // which is exactly what the 4.0 bytecode does.
-extern crate mec_mrbc_sys;
 extern crate mrubyedge;
 
 mod helpers;

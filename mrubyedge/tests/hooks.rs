@@ -3,7 +3,6 @@
 // Both fire while the VM is in the middle of a class or module definition,
 // so they also stand as the check that a hook body cannot walk over the
 // registers the definition is still using.
-extern crate mec_mrbc_sys;
 extern crate mrubyedge;
 
 mod helpers;

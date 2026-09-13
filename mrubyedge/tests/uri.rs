@@ -1,6 +1,5 @@
 #![cfg(feature = "mruby-uri")]
 // Runs in CI: the workflow enables mruby-uri.
-extern crate mec_mrbc_sys;
 extern crate mrubyedge;
 
 mod helpers;

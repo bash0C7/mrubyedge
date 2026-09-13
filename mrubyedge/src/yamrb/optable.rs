@@ -1041,6 +1041,16 @@ pub(crate) fn op_move(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
+fn send_bidx(n: usize, k: usize) -> usize {
+    let mut n = if n == 0x0f { 1 } else { n };
+    if k == 0x0f {
+        n += 1;
+    } else {
+        n += k * 2;
+    }
+    n + 1
+}
+
 pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     do_op_send(vm, 0, None, a, b, c)
@@ -1050,7 +1060,7 @@ pub(crate) fn op_ssendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     let n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
-    do_op_send(vm, 0, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, 0, Some(a as usize + send_bidx(n, k)), a, b, c)
 }
 
 pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1062,7 +1072,7 @@ pub(crate) fn op_sendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     let n: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
-    do_op_send(vm, a as usize, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, a as usize, Some(a as usize + send_bidx(n, k)), a, b, c)
 }
 
 pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1108,7 +1118,7 @@ pub(crate) fn do_op_send_with_id(
     method_id: RSym,
     c: u8,
 ) -> Result<(), Error> {
-    let mut n: usize = (c & 0x0f) as usize;
+    let n_reg: usize = (c & 0x0f) as usize;
     let k: usize = (c >> 4) as usize;
 
     if &method_id.name == "__debug__vm_info" {
@@ -1118,27 +1128,33 @@ pub(crate) fn do_op_send_with_id(
         return Ok(());
     }
 
-    let block_index = a as usize + n + k * 2 + 1;
+    let block_index = a as usize + send_bidx(n_reg, k);
 
     let recv = if recv_index == 0 {
         vm.getself()?
     } else {
         vm.get_current_regs_cloned(recv_index)?
     };
-    let mut args = (0..n)
-        .map(|i| {
-            vm.get_current_regs_cloned(a as usize + i + 1)
-                .expect("args too short for required")
-        })
-        .collect::<Vec<_>>();
+    let arg_slot_count = if n_reg == 0x0f { 1 } else { n_reg };
+    let mut args = if n_reg == 0x0f {
+        vm.get_current_regs_cloned(a as usize + 1)?.as_vec_owned()?
+    } else {
+        (0..n_reg)
+            .map(|i| {
+                vm.get_current_regs_cloned(a as usize + i + 1)
+                    .expect("args too short for required")
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut n = n_reg;
 
     let mut map = RHashMap::default();
     for i in 0..k {
         let key = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 1)?
+            .get_current_regs_cloned(a as usize + arg_slot_count + i * 2 + 1)?
             .intern()?;
         let val = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 2)?
+            .get_current_regs_cloned(a as usize + arg_slot_count + i * 2 + 2)?
             .clone();
         map.insert(key, val);
     }
@@ -1414,7 +1430,17 @@ impl From<u32> for EnterArgInfo {
 
 pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_w()?;
-    let argc = vm.current_callinfo.as_ref().map_or(0, |ci| ci.n_args);
+    let raw_argc = vm.current_callinfo.as_ref().map_or(0, |ci| ci.n_args);
+    let argc = if raw_argc == 0x0f {
+        let packed = vm.get_current_regs_cloned(1)?.as_vec_owned()?;
+        let len = packed.len();
+        for (i, val) in packed.into_iter().enumerate() {
+            vm.current_regs()[i + 1].replace(val);
+        }
+        len
+    } else {
+        raw_argc
+    };
     let arg_info = EnterArgInfo::from(a);
     // proc.h MRB_ASPEC_NOBLOCK: n1 (bit 23) refuses a block argument.
     let has_block = vm

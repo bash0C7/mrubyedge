@@ -61,3 +61,21 @@ splat_it(10, 20)
     let result_int: i32 = result.as_ref().try_into().unwrap();
     assert_eq!(result_int, 0);
 }
+
+#[test]
+fn splat_call_argument_test() {
+    let code = "
+def pair(a, b)
+  a + b
+end
+
+s = [1, 2]
+pair(*s)
+    ";
+    let binary = mrbc_compile("splat_call", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result_int: i32 = result.as_ref().try_into().unwrap();
+    assert_eq!(result_int, 3);
+}

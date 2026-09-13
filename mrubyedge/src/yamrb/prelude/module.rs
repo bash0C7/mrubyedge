@@ -15,10 +15,63 @@ pub(crate) fn initialize_module(vm: &mut VM) {
     );
     mrb_define_cmethod(
         vm,
-        module_class,
+        module_class.clone(),
         "ancestors",
         Box::new(mrb_module_ancestors),
     );
+    mrb_define_cmethod(
+        vm,
+        module_class,
+        "define_method",
+        Box::new(mrb_module_define_method),
+    );
+}
+
+fn self_as_module(vm: &mut VM, who: &str) -> Result<Rc<RModule>, Error> {
+    let self_obj = vm.getself()?;
+    match &self_obj.value {
+        RValue::Class(klass) => Ok(klass.as_module()),
+        RValue::Module(module) => Ok(module.clone()),
+        _ => Err(Error::RuntimeError(format!(
+            "{} must be called on class or module",
+            who
+        ))),
+    }
+}
+
+fn method_name_of(obj: &Rc<RObject>, who: &str) -> Result<String, Error> {
+    match &obj.value {
+        RValue::Symbol(sym) => Ok(sym.name.clone()),
+        RValue::String(..) => obj.as_ref().try_into(),
+        _ => Err(Error::RuntimeError(format!(
+            "{} expects a Symbol or String",
+            who
+        ))),
+    }
+}
+
+fn mrb_module_define_method(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let module = self_as_module(vm, "Module#define_method")?;
+    let name_obj = args
+        .first()
+        .ok_or_else(|| Error::RuntimeError("Module#define_method expects a name".to_string()))?;
+    let name = method_name_of(name_obj, "Module#define_method")?;
+
+    let body = args.get(1).ok_or_else(|| {
+        Error::RuntimeError("Module#define_method expects a block or a Proc".to_string())
+    })?;
+    let mut method = match &body.value {
+        RValue::Proc(p) => p.clone(),
+        _ => {
+            return Err(Error::RuntimeError(
+                "Module#define_method expects a block or a Proc".to_string(),
+            ));
+        }
+    };
+    method.sym_id = Some(RSym::new(name.clone()));
+
+    module.procs.borrow_mut().insert(name.clone(), method);
+    Ok(RObject::symbol(RSym::new(name)).to_refcount_assigned())
 }
 
 fn mrb_module_include(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

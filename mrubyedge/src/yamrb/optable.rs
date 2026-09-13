@@ -1033,7 +1033,7 @@ pub(crate) fn op_getidx0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let zero = RObject::integer(0).to_refcount_assigned();
     vm.current_regs()[a as usize].replace(recv);
     vm.current_regs()[a as usize + 1].replace(zero);
-    do_op_send_with_id(vm, a as usize, None, a, RSym::new("[]".to_string()), 1)
+    do_op_send_with_id(vm, a as usize, false, a, RSym::new("[]".to_string()), 1)
 }
 
 pub(crate) fn op_matcherr(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1226,36 +1226,32 @@ pub(crate) fn op_move(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
-    do_op_send(vm, 0, None, a, b, c)
+    do_op_send(vm, 0, false, a, b, c)
 }
 
 pub(crate) fn op_ssendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
-    let n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
-    do_op_send(vm, 0, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, 0, true, a, b, c)
 }
 
 pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
-    do_op_send(vm, a as usize, None, a, b, c)
+    do_op_send(vm, a as usize, false, a, b, c)
 }
 
 pub(crate) fn op_sendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
-    let n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
-    do_op_send(vm, a as usize, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, a as usize, true, a, b, c)
 }
 
 pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
-    do_op_send(vm, 0, None, a, b, 0)
+    do_op_send(vm, 0, false, a, b, 0)
 }
 
 pub(crate) fn op_send0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
-    do_op_send(vm, a as usize, None, a, b, 0)
+    do_op_send(vm, a as usize, false, a, b, 0)
 }
 
 pub(crate) fn op_blkcall(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1267,31 +1263,38 @@ pub(crate) fn op_blkcall(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
             "wrong type (expected Proc)".to_string(),
         ));
     }
-    do_op_send_with_id(vm, a as usize, None, a, RSym::new("call".to_string()), b)
+    do_op_send_with_id(vm, a as usize, false, a, RSym::new("call".to_string()), b)
 }
 
 pub(crate) fn do_op_send(
     vm: &mut VM,
     recv_index: usize,
-    blk_index: Option<usize>,
+    has_block: bool,
     a: u16,
     b: u16,
     c: u16,
 ) -> Result<(), Error> {
     let method_id = vm.current_irep.syms[b as usize].clone();
-    do_op_send_with_id(vm, recv_index, blk_index, a, method_id, c)
+    do_op_send_with_id(vm, recv_index, has_block, a, method_id, c)
 }
 
 pub(crate) fn do_op_send_with_id(
     vm: &mut VM,
     recv_index: usize,
-    blk_index: Option<usize>,
+    has_block: bool,
     a: u16,
     method_id: RSym,
     c: u16,
 ) -> Result<(), Error> {
-    let mut n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
+    // An argument count of 15 means the arguments arrived as one array, and a
+    // keyword count of 15 means the keywords arrived as one hash.
+    let given_n: usize = (c & 0x0f) as usize;
+    let given_k: usize = ((c >> 4) & 0x0f) as usize;
+    let spread_args = given_n == 0x0f;
+    let spread_keywords = given_k == 0x0f;
+    let args_width = if spread_args { 1 } else { given_n };
+    let keywords_at = a as usize + args_width + 1;
+    let keywords_width = if spread_keywords { 1 } else { given_k * 2 };
 
     if &method_id.name == "__debug__vm_info" {
         // Special debug method to dump VM info
@@ -1300,34 +1303,93 @@ pub(crate) fn do_op_send_with_id(
         return Ok(());
     }
 
-    let block_index = a as usize + n + k * 2 + 1;
+    let block_index = a as usize + args_width + keywords_width + 1;
 
     let recv = if recv_index == 0 {
         vm.getself()?
     } else {
         vm.get_current_regs_cloned(recv_index)?
     };
-    let mut args = (0..n)
-        .map(|i| {
-            vm.get_current_regs_cloned(a as usize + i + 1)
-                .expect("args too short for required")
-        })
-        .collect::<Vec<_>>();
+    let mut args = if spread_args {
+        let packed = vm.get_current_regs_cloned(a as usize + 1)?;
+        match &packed.value {
+            RValue::Array(ary) => ary.borrow().clone(),
+            _ => vec![packed],
+        }
+    } else {
+        (0..given_n)
+            .map(|i| {
+                vm.get_current_regs_cloned(a as usize + i + 1)
+                    .expect("args too short for required")
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut n = args.len();
 
     let mut map = RHashMap::default();
-    for i in 0..k {
-        let key = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 1)?
-            .intern()?;
-        let val = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 2)?
-            .clone();
-        map.insert(key, val);
+    if spread_keywords {
+        let packed = vm.get_current_regs_cloned(keywords_at)?;
+        if let RValue::Hash(hash) = &packed.value {
+            for (key, val) in hash.borrow().values() {
+                map.insert(key.intern()?, val.clone());
+            }
+        }
+    } else {
+        for i in 0..given_k {
+            let key = vm.get_current_regs_cloned(keywords_at + i * 2)?.intern()?;
+            let val = vm.get_current_regs_cloned(keywords_at + i * 2 + 1)?.clone();
+            map.insert(key, val);
+        }
     }
+    let mut keywords: Vec<(Rc<RObject>, Rc<RObject>)> = Vec::new();
+    if spread_args || spread_keywords {
+        // The callee reads its arguments from registers, so the values that
+        // arrived packed have to be laid out one per register.
+        if !spread_keywords {
+            for i in 0..given_k {
+                keywords.push((
+                    vm.get_current_regs_cloned(keywords_at + i * 2)?,
+                    vm.get_current_regs_cloned(keywords_at + i * 2 + 1)?,
+                ));
+            }
+        } else {
+            let packed = vm.get_current_regs_cloned(keywords_at)?;
+            if let RValue::Hash(hash) = &packed.value {
+                for (key, val) in hash.borrow().values() {
+                    keywords.push((key.clone(), val.clone()));
+                }
+            }
+        }
+        let block = if has_block {
+            Some(vm.get_current_regs_cloned(block_index)?)
+        } else {
+            None
+        };
+        let laid_out = a as usize + n + keywords.len() * 2 + 2;
+        let needed = vm.current_regs_offset + laid_out;
+        if vm.regs.len() < needed {
+            vm.regs.resize(needed, None);
+        }
+        for (i, arg) in args.iter().enumerate() {
+            vm.current_regs()[a as usize + 1 + i].replace(arg.clone());
+        }
+        for (i, (key, val)) in keywords.iter().enumerate() {
+            vm.current_regs()[a as usize + n + 1 + i * 2].replace(key.clone());
+            vm.current_regs()[a as usize + n + 2 + i * 2].replace(val.clone());
+        }
+        if let Some(block) = block {
+            vm.current_regs()[a as usize + n + keywords.len() * 2 + 1].replace(block);
+        }
+    }
+    let block_index = if spread_args || spread_keywords {
+        a as usize + n + keywords.len() * 2 + 1
+    } else {
+        block_index
+    };
     vm.kargs.borrow_mut().replace(map);
 
-    if let Some(blk_index) = blk_index {
-        let blk_val = vm.get_current_regs_cloned(blk_index)?;
+    if has_block {
+        let blk_val = vm.get_current_regs_cloned(block_index)?;
         if matches!(blk_val.tt, RType::Symbol) {
             let proc_val = mrb_funcall(vm, Some(blk_val), "to_proc", &[])?;
             args.push(proc_val);
@@ -1347,7 +1409,13 @@ pub(crate) fn do_op_send_with_id(
     };
     let (owner_module, method) = resolve_method(&klass, &method_id.name)
         .or_else(|| {
-            unshift_method_name(vm, &mut args, &method_id, a as usize, n + k * 2 + 1);
+            unshift_method_name(
+                vm,
+                &mut args,
+                &method_id,
+                a as usize,
+                args_width + keywords_width,
+            );
             n += 1;
             resolve_method(&klass, "method_missing")
         })
@@ -1410,7 +1478,7 @@ pub(crate) fn do_op_send_with_id(
 
     // Set has_block flag based on whether a block was provided
     if let Some(ci) = vm.current_callinfo.as_ref() {
-        ci.has_block.set(blk_index.is_some());
+        ci.has_block.set(has_block);
     }
 
     vm.pc.set(0);
@@ -1846,9 +1914,33 @@ pub(crate) fn op_break(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 }
 
 pub(crate) fn op_blkpush(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
-    let (a, _s) = operand.as_bs()?;
-    let n = vm.current_callinfo.as_ref().unwrap().n_args;
-    let block = vm.get_current_regs_cloned(n + 1)?;
+    let (a, b) = operand.as_bs()?;
+    let m1 = ((b >> 11) & 0x3f) as usize;
+    let r = ((b >> 10) & 0x1) as usize;
+    let m2 = ((b >> 5) & 0x1f) as usize;
+    let kd = ((b >> 4) & 0x1) as usize;
+    let lv = (b & 0xf) as usize;
+    let offset = m1 + r + m2 + kd;
+
+    let unexpected = || Error::RuntimeError("unexpected yield".to_string());
+    let base = if lv == 0 {
+        vm.current_regs_offset + 1
+    } else {
+        let mut environ = vm.upper.as_ref().ok_or_else(unexpected)?;
+        for _ in 0..(lv - 1) {
+            environ = environ.upper.as_ref().ok_or_else(unexpected)?;
+        }
+        environ.current_regs_offset + 1
+    };
+
+    let block = vm
+        .regs
+        .get(base + offset)
+        .and_then(|reg| reg.as_ref().cloned())
+        .ok_or_else(unexpected)?;
+    if matches!(block.tt, RType::Nil) {
+        return Err(unexpected());
+    }
     vm.current_regs()[a as usize].replace(block);
     Ok(())
 }

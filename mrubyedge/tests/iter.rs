@@ -123,3 +123,24 @@ fn array_each_test() {
         .unwrap();
     assert_eq!(result, 22222);
 }
+
+#[test]
+fn yield_from_inside_a_block_test() {
+    let code = "
+def relay
+  [1].each do
+    yield 3
+  end
+end
+
+seen = 0
+relay { |x| seen = x }
+seen
+    ";
+    let binary = mrbc_compile("yield_in_block", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 3);
+}

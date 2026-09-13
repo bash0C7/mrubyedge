@@ -468,16 +468,26 @@ impl RObject {
         }
 
         let class = match &self.value {
-            RValue::Class(c) => c.clone(),
-            _ => panic!("Not called on a class"),
+            RValue::Class(c) => Some(c.clone()),
+            RValue::Module(_) => None,
+            _ => return self.initialize_or_get_singleton_class(vm),
         };
-        let class_name = format!("#<Class:{}>", class.full_name());
-        let super_class = match &class.super_class {
+        let class_name = match &class {
+            Some(c) => format!("#<Class:{}>", c.full_name()),
+            None => match &self.value {
+                RValue::Module(m) => format!("#<Class:{}>", m.sym_id.name),
+                _ => unreachable!(),
+            },
+        };
+        let super_class = match class.as_ref().and_then(|c| c.super_class.clone()) {
             Some(parent) => {
-                let parent_obj = RObject::class(parent.clone(), vm);
+                let parent_obj = RObject::class(parent, vm);
                 parent_obj.initialize_or_get_singleton_class_for_class(vm)
             }
-            None => vm.get_class_by_name("Class"),
+            None => match &class {
+                Some(_) => vm.get_class_by_name("Class"),
+                None => vm.get_class_by_name("Module"),
+            },
         };
 
         let parent_module = self.get_class(vm).parent.borrow().clone();
@@ -489,16 +499,40 @@ impl RObject {
         sclass.update_module_weakref();
 
         self.singleton_class.replace(Some(sclass.clone()));
-        class
-            .singleton_class_ref
-            .borrow_mut()
-            .replace(sclass.clone());
+        match (&class, &self.value) {
+            (Some(class), _) => {
+                class
+                    .singleton_class_ref
+                    .borrow_mut()
+                    .replace(sclass.clone());
+            }
+            (None, RValue::Module(module)) => {
+                module
+                    .singleton_class_ref
+                    .borrow_mut()
+                    .replace(sclass.clone());
+            }
+            _ => {}
+        }
         sclass
     }
 
     pub fn singleton_or_this_class(self: &Rc<Self>, vm: &mut VM) -> Rc<RClass> {
         if let Some(sclass) = self.singleton_class.borrow().as_ref() {
             return sclass.clone();
+        }
+        match &self.value {
+            RValue::Class(klass) => {
+                if let Some(sclass) = klass.singleton_class_ref.borrow().as_ref() {
+                    return sclass.clone();
+                }
+            }
+            RValue::Module(module) => {
+                if let Some(sclass) = module.singleton_class_ref.borrow().as_ref() {
+                    return sclass.clone();
+                }
+            }
+            _ => {}
         }
         self.get_class(vm)
     }
@@ -885,6 +919,7 @@ pub struct RModule {
     pub procs: RefCell<RHashMap<String, RProc>>,
     pub consts: RefCell<RHashMap<String, Rc<RObject>>>,
     pub cvars: RefCell<RHashMap<String, Rc<RObject>>>,
+    pub singleton_class_ref: RefCell<Option<Rc<RClass>>>,
     pub mixed_in_modules: RefCell<Vec<Rc<RModule>>>,
     pub parent: RefCell<Option<Rc<RModule>>>,
 
@@ -899,6 +934,7 @@ impl RModule {
             procs: RefCell::new(RHashMap::default()),
             consts: RefCell::new(RHashMap::default()),
             cvars: RefCell::new(RHashMap::default()),
+            singleton_class_ref: RefCell::new(None),
             mixed_in_modules: RefCell::new(Vec::new()),
             parent: RefCell::new(None),
             underlying: RefCell::new(None),

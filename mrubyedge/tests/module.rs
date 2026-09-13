@@ -246,3 +246,43 @@ MyClass.new.greet
         .expect("greet should return string");
     assert_eq!(value, "hello from Inner");
 }
+
+#[test]
+fn singleton_method_on_a_module_test() {
+    let code = "
+module Helper
+  def self.answer
+    3
+  end
+end
+
+Helper.answer
+    ";
+    let binary = mrbc_compile("module_sdef", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 3);
+}
+
+#[test]
+fn singleton_class_body_on_a_module_test() {
+    let code = "
+module Helper
+  class << self
+    def answer
+      4
+    end
+  end
+end
+
+Helper.answer
+    ";
+    let binary = mrbc_compile("module_sclass", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 4);
+}

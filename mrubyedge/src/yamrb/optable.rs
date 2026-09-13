@@ -1829,13 +1829,13 @@ fn do_return(vm: &mut VM, value: Option<Rc<RObject>>) -> Result<(), Error> {
 
 pub(crate) fn op_return_blk(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
+    let Some(env) = vm.get_outermost_env() else {
+        let value = vm.current_regs()[a].clone();
+        return do_return(vm, value);
+    };
     let val = vm.get_current_regs_cloned(a)?;
-    let target_irep_id = vm
-        .get_outermost_env()
-        .expect("not found outermost env")
-        .__irep_id;
 
-    Err(Error::BlockReturn(target_irep_id, val))
+    Err(Error::BlockReturn(env.__irep_id, val))
 }
 
 pub(crate) fn op_break(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {

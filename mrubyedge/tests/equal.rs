@@ -166,3 +166,65 @@ fn an_object_without_its_own_equals_still_compares_by_identity_test() {
         .unwrap();
     assert_eq!(result, "true|false");
 }
+
+// `!=` is `!(self == other)`, as mruby's BasicObject#!= defines it, so a
+// user-defined == decides != too.
+
+#[test]
+fn not_eq_honors_a_user_defined_double_eq_that_says_true_test() {
+    let code = r##"
+    class AlwaysEqual
+      def ==(other)
+        true
+      end
+    end
+
+    def test_main
+      "#{AlwaysEqual.new != AlwaysEqual.new}"
+    end
+    "##;
+    let result: String = run_test_main("not_eq_always_equal", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "false");
+}
+
+#[test]
+fn not_eq_honors_a_user_defined_double_eq_that_says_false_test() {
+    let code = r##"
+    class NeverEqual
+      def ==(other)
+        false
+      end
+    end
+
+    def test_main
+      a = NeverEqual.new
+      "#{a != a}"
+    end
+    "##;
+    let result: String = run_test_main("not_eq_never_equal", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "true");
+}
+
+#[test]
+fn not_eq_without_a_user_defined_double_eq_still_compares_by_identity_test() {
+    let code = r##"
+    class Plain
+    end
+
+    def test_main
+      a = Plain.new
+      "#{a != a}|#{a != Plain.new}"
+    end
+    "##;
+    let result: String = run_test_main("plain_not_equals", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "false|true");
+}

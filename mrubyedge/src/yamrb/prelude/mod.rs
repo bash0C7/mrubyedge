@@ -52,4 +52,22 @@ pub fn prelude(vm: &mut VM) {
     rand::initialize_rand(vm);
     #[cfg(feature = "mruby-regexp")]
     regexp::initialize_regexp(vm);
+    initialize_env(vm);
+}
+
+// `ENV` as a plain Hash: carries the host's variables where there is a host
+// to ask, else stays empty. The `wasi` feature alone cannot decide this:
+// Cargo unifies features across the graph, so a wasm32-unknown-unknown build
+// gets `wasi` switched on as soon as anything in the tree asks for it, and
+// std::env::vars() panics there. Ask the target as well.
+fn initialize_env(vm: &mut VM) {
+    let env = hash::mrb_hash_new(vm, &[]).expect("ENV hash");
+    #[cfg(all(feature = "wasi", any(not(target_family = "wasm"), target_os = "wasi")))]
+    for (key, value) in std::env::vars() {
+        use super::value::RObject;
+        let key = RObject::string(key).to_refcount_assigned();
+        let value = RObject::string(value).to_refcount_assigned();
+        hash::mrb_hash_set_index(env.clone(), key, value).expect("ENV entry");
+    }
+    vm.consts.insert("ENV".to_string(), env);
 }

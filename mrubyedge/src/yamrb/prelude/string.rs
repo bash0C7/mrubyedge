@@ -3,7 +3,7 @@ use std::rc::Rc;
 use crate::{
     Error,
     yamrb::{
-        helpers::{mrb_define_class_cmethod, mrb_define_cmethod},
+        helpers::{mrb_call_block, mrb_define_class_cmethod, mrb_define_cmethod},
         prelude::object,
         value::{RObject, RSym, RValue},
         vm::VM,
@@ -151,6 +151,20 @@ pub(crate) fn initialize_string(vm: &mut VM) {
         "include?",
         Box::new(mrb_string_include),
     );
+    mrb_define_cmethod(vm, string_class.clone(), "sub", Box::new(mrb_string_sub));
+    mrb_define_cmethod(
+        vm,
+        string_class.clone(),
+        "sub!",
+        Box::new(mrb_string_sub_self),
+    );
+    mrb_define_cmethod(vm, string_class.clone(), "gsub", Box::new(mrb_string_gsub));
+    mrb_define_cmethod(
+        vm,
+        string_class.clone(),
+        "gsub!",
+        Box::new(mrb_string_gsub_self),
+    );
     mrb_define_cmethod(
         vm,
         string_class.clone(),
@@ -162,6 +176,18 @@ pub(crate) fn initialize_string(vm: &mut VM) {
         string_class.clone(),
         "chars",
         Box::new(mrb_string_chars),
+    );
+    mrb_define_cmethod(
+        vm,
+        string_class.clone(),
+        "each_byte",
+        Box::new(mrb_string_each_byte),
+    );
+    mrb_define_cmethod(
+        vm,
+        string_class.clone(),
+        "each_char",
+        Box::new(mrb_string_each_char),
     );
     mrb_define_cmethod(
         vm,
@@ -186,6 +212,12 @@ pub(crate) fn initialize_string(vm: &mut VM) {
         string_class.clone(),
         "downcase!",
         Box::new(mrb_string_downcase_self),
+    );
+    mrb_define_cmethod(
+        vm,
+        string_class.clone(),
+        "capitalize",
+        Box::new(mrb_string_capitalize),
     );
     mrb_define_cmethod(vm, string_class.clone(), "to_i", Box::new(mrb_string_to_i));
     mrb_define_cmethod(vm, string_class.clone(), "to_f", Box::new(mrb_string_to_f));
@@ -379,9 +411,57 @@ fn mrb_string_append(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, E
     Ok(this)
 }
 
+/// Resolve `str[first..last]` against a string of `len` characters, following
+/// Ruby: negative bounds count from the end, a missing bound runs to the edge,
+/// and a start past the end is nil rather than an empty string.
+fn slice_range_bounds(range: &Rc<RObject>, len: i64) -> Result<Option<(usize, usize)>, Error> {
+    let (start, end, exclusive) = match &range.value {
+        RValue::Range(start, end, exclusive) => (start, end, *exclusive),
+        _ => return Err(Error::TypeMismatch),
+    };
+
+    let mut first: i64 = match start.value {
+        RValue::Nil => 0,
+        _ => start.as_ref().try_into()?,
+    };
+    if first < 0 {
+        first += len;
+    }
+    if first < 0 || first > len {
+        return Ok(None);
+    }
+
+    let mut stop: i64 = match end.value {
+        RValue::Nil => len,
+        _ => {
+            let mut last: i64 = end.as_ref().try_into()?;
+            if last < 0 {
+                last += len;
+            }
+            if exclusive { last } else { last + 1 }
+        }
+    };
+    stop = stop.clamp(first, len);
+
+    Ok(Some((first as usize, stop as usize)))
+}
+
 fn mrb_string_slice(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this: String = vm.getself()?.as_ref().try_into()?;
     let chars: Vec<char> = this.chars().collect();
+
+    if let Some(arg) = args.first()
+        && matches!(arg.value, RValue::Range(_, _, _))
+    {
+        return Ok(Rc::new(
+            match slice_range_bounds(arg, chars.len() as i64)? {
+                Some((first, stop)) => {
+                    RObject::string(chars[first..stop].iter().collect::<String>())
+                }
+                None => RObject::nil(),
+            },
+        ));
+    }
 
     if args.is_empty() {
         return Err(Error::ArgumentError(
@@ -414,6 +494,20 @@ fn mrb_string_slice_self(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject
     let this = vm.getself()?;
     let s: String = this.as_ref().try_into()?;
     let chars: Vec<char> = s.chars().collect();
+
+    if let Some(arg) = args.first()
+        && matches!(arg.value, RValue::Range(_, _, _))
+    {
+        let Some((first, stop)) = slice_range_bounds(arg, chars.len() as i64)? else {
+            return Ok(Rc::new(RObject::nil()));
+        };
+        let removed: String = chars[first..stop].iter().collect();
+        let mut remaining_chars = chars.clone();
+        remaining_chars.drain(first..stop);
+        let remaining: String = remaining_chars.iter().collect();
+        *this.string_borrow_mut()? = remaining.into_bytes();
+        return Ok(Rc::new(RObject::string(removed)));
+    }
 
     if args.is_empty() {
         return Err(Error::ArgumentError(
@@ -658,6 +752,204 @@ fn mrb_string_include(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, 
     Ok(Rc::new(RObject::boolean(this.contains(&search))))
 }
 
+// One match found by sub/gsub: its span in the subject and its captured groups (0 = whole match).
+struct SubMatch {
+    start: usize,
+    end: usize,
+    groups: Vec<Option<String>>,
+}
+
+fn sub_find(subject: &str, pattern: &Rc<RObject>, global: bool) -> Result<Vec<SubMatch>, Error> {
+    match &pattern.value {
+        RValue::String(_, _) => {
+            let needle: String = pattern.as_ref().try_into()?;
+            let mut found = Vec::new();
+            // An empty pattern matches at every character boundary, the way
+            // "abc".gsub("", "-") does.
+            if needle.is_empty() {
+                for (i, _) in subject.char_indices() {
+                    found.push(SubMatch {
+                        start: i,
+                        end: i,
+                        groups: vec![Some(String::new())],
+                    });
+                    if !global {
+                        return Ok(found);
+                    }
+                }
+                found.push(SubMatch {
+                    start: subject.len(),
+                    end: subject.len(),
+                    groups: vec![Some(String::new())],
+                });
+                return Ok(found);
+            }
+            for (start, hit) in subject.match_indices(&needle) {
+                found.push(SubMatch {
+                    start,
+                    end: start + hit.len(),
+                    groups: vec![Some(hit.to_string())],
+                });
+                if !global {
+                    break;
+                }
+            }
+            Ok(found)
+        }
+        #[cfg(feature = "mruby-regexp")]
+        RValue::Data(_) => {
+            let re = super::regexp::get_regexp_from_object(pattern)?;
+            let mut found = Vec::new();
+            for caps in re.captures_iter(subject) {
+                let whole = caps.get(0).expect("group 0 always matches");
+                found.push(SubMatch {
+                    start: whole.start(),
+                    end: whole.end(),
+                    groups: caps
+                        .iter()
+                        .map(|g| g.map(|m| m.as_str().to_string()))
+                        .collect(),
+                });
+                if !global {
+                    break;
+                }
+            }
+            Ok(found)
+        }
+        _ => Err(Error::ArgumentError(
+            "sub/gsub expects a String or Regexp pattern".to_string(),
+        )),
+    }
+}
+
+// Expand the `\0`-`\9`, `\&` and `\\` escapes a replacement string may carry.
+fn sub_expand(template: &str, groups: &[Option<String>]) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut chars = template.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => out.push('\\'),
+            Some('&') => {
+                if let Some(Some(g)) = groups.first() {
+                    out.push_str(g);
+                }
+            }
+            Some(d) if d.is_ascii_digit() => {
+                let index = d as usize - '0' as usize;
+                if let Some(Some(g)) = groups.get(index) {
+                    out.push_str(g);
+                }
+            }
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
+/// The body behind all four of `sub`, `sub!`, `gsub` and `gsub!`. Returns the
+/// rewritten string, or None when the pattern never matched (which is what the
+/// bang forms report as nil).
+fn string_substitute(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+    global: bool,
+) -> Result<Option<String>, Error> {
+    let subject: String = vm.getself()?.as_ref().try_into()?;
+    let pattern = args
+        .first()
+        .ok_or_else(|| Error::ArgumentError("sub/gsub expects a pattern".to_string()))?;
+    let matches = sub_find(&subject, pattern, global)?;
+    if matches.is_empty() {
+        return Ok(None);
+    }
+
+    // A block is passed as the trailing argument (see do_op_send).
+    let replacement = args.get(1);
+    let block = match replacement {
+        Some(obj) if matches!(obj.value, RValue::Proc(_)) => Some(obj.clone()),
+        _ => None,
+    };
+    let template: Option<String> = match (&block, replacement) {
+        (None, Some(obj)) => Some(obj.as_ref().try_into()?),
+        _ => None,
+    };
+    if block.is_none() && template.is_none() {
+        return Err(Error::ArgumentError(
+            "sub/gsub expects a replacement or a block".to_string(),
+        ));
+    }
+
+    let mut out = String::with_capacity(subject.len());
+    let mut cursor = 0usize;
+    for m in matches.iter() {
+        // An empty match right where the previous one ended would duplicate
+        // the character between them.
+        if m.start < cursor {
+            continue;
+        }
+        out.push_str(&subject[cursor..m.start]);
+        match (&block, &template) {
+            (Some(block), _) => {
+                let whole = m.groups.first().cloned().flatten().unwrap_or_default();
+                let arg = RObject::string(whole).to_refcount_assigned();
+                let res = mrb_call_block(vm, block.clone(), None, &[arg], 0)?;
+                let res: String = res.as_ref().try_into()?;
+                out.push_str(&res);
+            }
+            (None, Some(template)) => out.push_str(&sub_expand(template, &m.groups)),
+            (None, None) => unreachable!("checked above"),
+        }
+        cursor = m.end;
+    }
+    out.push_str(&subject[cursor..]);
+    Ok(Some(out))
+}
+
+fn mrb_string_sub(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let subject: String = vm.getself()?.as_ref().try_into()?;
+    Ok(Rc::new(RObject::string(
+        string_substitute(vm, args, false)?.unwrap_or(subject),
+    )))
+}
+
+fn mrb_string_gsub(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let subject: String = vm.getself()?.as_ref().try_into()?;
+    Ok(Rc::new(RObject::string(
+        string_substitute(vm, args, true)?.unwrap_or(subject),
+    )))
+}
+
+fn mrb_string_sub_self(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    string_substitute_self(vm, args, false)
+}
+
+fn mrb_string_gsub_self(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    string_substitute_self(vm, args, true)
+}
+
+fn string_substitute_self(
+    vm: &mut VM,
+    args: &[Rc<RObject>],
+    global: bool,
+) -> Result<Rc<RObject>, Error> {
+    match string_substitute(vm, args, global)? {
+        Some(result) => {
+            let this = vm.getself()?;
+            *this.string_borrow_mut()? = result.into_bytes();
+            Ok(this)
+        }
+        None => Ok(Rc::new(RObject::nil())),
+    }
+}
+
 fn mrb_string_bytes(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this: Vec<u8> = vm.getself()?.as_ref().try_into()?;
     let result: Vec<Rc<RObject>> = this
@@ -665,6 +957,39 @@ fn mrb_string_bytes(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, E
         .map(|b| Rc::new(RObject::integer(b as i64)))
         .collect();
     Ok(Rc::new(RObject::array(result)))
+}
+
+/// String#each_byte { |byte| ... }
+fn mrb_string_each_byte(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let block = args
+        .first()
+        .ok_or_else(|| Error::RuntimeError("String#each_byte expects a block".to_string()))?
+        .clone();
+    let bytes: Vec<u8> = this.as_ref().try_into()?;
+    for byte in bytes.into_iter() {
+        let arg = RObject::integer(byte as i64).to_refcount_assigned();
+        mrb_call_block(vm, block.clone(), None, &[arg], 0)?;
+    }
+    Ok(this)
+}
+
+/// String#each_char { |char| ... }
+fn mrb_string_each_char(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this = vm.getself()?;
+    let block = args
+        .first()
+        .ok_or_else(|| Error::RuntimeError("String#each_char expects a block".to_string()))?
+        .clone();
+    let chars = mrb_string_chars(vm, &[])?;
+    let chars: Vec<Rc<RObject>> = match &chars.value {
+        RValue::Array(a) => a.borrow().clone(),
+        _ => vec![],
+    };
+    for char in chars.into_iter() {
+        mrb_call_block(vm, block.clone(), None, &[char], 0)?;
+    }
+    Ok(this)
 }
 
 /// Returns an array of characters.
@@ -697,6 +1022,18 @@ fn mrb_string_chars(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, E
 fn mrb_string_upcase(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this: String = vm.getself()?.as_ref().try_into()?;
     Ok(Rc::new(RObject::string(this.to_uppercase())))
+}
+
+/// First character upcased, the rest downcased -- Ruby's `capitalize`, not
+/// a title-caser.
+fn mrb_string_capitalize(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let this: String = vm.getself()?.as_ref().try_into()?;
+    let mut chars = this.chars();
+    let capitalized = match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase(),
+        None => String::new(),
+    };
+    Ok(Rc::new(RObject::string(capitalized)))
 }
 
 fn mrb_string_upcase_self(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

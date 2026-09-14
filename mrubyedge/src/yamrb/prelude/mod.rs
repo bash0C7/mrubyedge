@@ -29,6 +29,9 @@ pub mod rand;
 #[cfg(feature = "mruby-regexp")]
 pub mod regexp;
 
+#[cfg(feature = "mruby-uri")]
+pub mod uri;
+
 pub fn prelude(vm: &mut VM) {
     object::initialize_object(vm);
     exception::initialize_exception(vm);
@@ -52,6 +55,8 @@ pub fn prelude(vm: &mut VM) {
     rand::initialize_rand(vm);
     #[cfg(feature = "mruby-regexp")]
     regexp::initialize_regexp(vm);
+    #[cfg(feature = "mruby-uri")]
+    uri::initialize_uri(vm);
     initialize_env(vm);
 }
 

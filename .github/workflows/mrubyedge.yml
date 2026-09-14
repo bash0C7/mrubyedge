@@ -42,7 +42,7 @@ jobs:
         run: |
           set +e
           cargo test -p mrubyedge \
-            --features "mrubyedge-debug,mruby-random,mruby-regexp${{ matrix.ENABLE_FNV_HASH }}" \
+            --features "mrubyedge-debug,mruby-random,mruby-regexp,mruby-uri${{ matrix.ENABLE_FNV_HASH }}" \
             --profile ${{ matrix.BUILD_TARGET }}
           TEST_RESULT=$?
           if [ $TEST_RESULT != 0 ]; then
@@ -57,7 +57,7 @@ jobs:
       - name: Build binaries for "${{ matrix.BUILD_TARGET }}${{ matrix.ENABLE_FNV_HASH }}" profile
         run: |
           cargo build -p mrubyedge \
-            --features "mrubyedge-debug,mruby-random,mruby-regexp${{ matrix.ENABLE_FNV_HASH }}" \
+            --features "mrubyedge-debug,mruby-random,mruby-regexp,mruby-uri${{ matrix.ENABLE_FNV_HASH }}" \
             --profile ${{ matrix.BUILD_TARGET }}
           cargo build -p mrubyedge-cli
 

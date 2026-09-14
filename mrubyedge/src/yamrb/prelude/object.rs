@@ -4,10 +4,13 @@ use crate::{
     Error,
     yamrb::{
         helpers::{mrb_call_block, mrb_define_cmethod, mrb_funcall},
+        optable::resolve_const,
         value::*,
         vm::VM,
     },
 };
+
+use super::module::method_name_of;
 
 pub(crate) fn initialize_object(vm: &mut VM) {
     let object_class = vm.object_class.clone();
@@ -116,6 +119,45 @@ pub(crate) fn initialize_object(vm: &mut VM) {
         "method_missing",
         Box::new(mrb_object_method_missing),
     );
+    // mruby 4.0 compiles `defined?(...)` into a call to one of these instead
+    // of inlining the test the way 3.3 did, so a chunk its mrbc produced
+    // needs them present.
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_const?",
+        Box::new(mrb_kernel_defined_const),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_const_path?",
+        Box::new(mrb_kernel_defined_const_path),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_method?",
+        Box::new(mrb_kernel_defined_method),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_method_on?",
+        Box::new(mrb_kernel_defined_method_on),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_ivar?",
+        Box::new(mrb_kernel_defined_ivar),
+    );
+    mrb_define_cmethod(
+        vm,
+        object_class.clone(),
+        "__defined_gvar?",
+        Box::new(mrb_kernel_defined_gvar),
+    );
     mrb_define_cmethod(
         vm,
         object_class.clone(),
@@ -214,6 +256,155 @@ pub fn mrb_object_not_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject
     let lhs = vm.getself()?;
     let rhs = args[0].clone();
     Ok(mrb_object_is_not_equal(vm, lhs, rhs))
+}
+
+// The `defined?` family mruby 4.0's compiler calls into. Each answers with
+// the word Ruby's `defined?` returns, or nil.
+fn defined_arg_name(args: &[Rc<RObject>], who: &str) -> Result<String, Error> {
+    let arg = args
+        .first()
+        .ok_or_else(|| Error::ArgumentError(format!("{} expects a name", who)))?;
+    method_name_of(arg, who)
+}
+
+fn defined_as(kind: &str, yes: bool) -> Rc<RObject> {
+    if yes {
+        Rc::new(RObject::string(kind.to_string()))
+    } else {
+        Rc::new(RObject::nil())
+    }
+}
+
+// `defined?(Foo)`
+fn mrb_kernel_defined_const(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let name = defined_arg_name(args, "__defined_const?")?;
+    let found = resolve_const(vm, &name).is_some();
+    Ok(defined_as("constant", found))
+}
+
+// The module (if any) a constant-holding value is: a Class's module, or a
+// Module itself.
+fn module_of(obj: &Rc<RObject>) -> Option<Rc<RModule>> {
+    match &obj.value {
+        RValue::Class(klass) => Some(klass.module.clone()),
+        RValue::Module(module) => Some(module.clone()),
+        _ => None,
+    }
+}
+
+// Mirrors OP_GETMCNST (optable.rs): look `name` up in `module`'s consts,
+// then walk its parent chain.
+fn lookup_mcnst(module: &Rc<RModule>, name: &str) -> Option<Rc<RObject>> {
+    let mut current = Some(module.clone());
+    while let Some(m) = current {
+        if let Some(val) = m.consts.borrow().get(name).cloned() {
+            return Some(val);
+        }
+        current = m.parent.borrow().clone();
+    }
+    None
+}
+
+// `defined?(Foo::Bar)` / `defined?(::Foo)`, always called with exactly
+// (root, path_array): root is the Object class for a `::`-rooted path,
+// nil for a lexically-rooted one, or an already-evaluated receiver for
+// `expr::NAME`. path_array holds the path's Symbols, outermost first.
+fn mrb_kernel_defined_const_path(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let root = args
+        .first()
+        .ok_or_else(|| Error::ArgumentError("__defined_const_path? expects a root".to_string()))?;
+    let path = args.get(1).ok_or_else(|| {
+        Error::ArgumentError("__defined_const_path? expects a path array".to_string())
+    })?;
+    let RValue::Array(elems) = &path.value else {
+        return Err(Error::ArgumentError(
+            "__defined_const_path? expects an Array path".to_string(),
+        ));
+    };
+    let names = elems
+        .borrow()
+        .iter()
+        .map(|e| method_name_of(e, "__defined_const_path?"))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let Some((first, rest)) = names.split_first() else {
+        return Ok(defined_as("constant", false));
+    };
+
+    let mut current = match &root.value {
+        RValue::Nil => resolve_const(vm, first),
+        _ => {
+            let found = module_of(root).and_then(|m| lookup_mcnst(&m, first));
+            match (&found, &root.value) {
+                // A top-level `NAME = value` lands in vm.globals' sibling
+                // vm.consts, not in Object's const table, because
+                // op_setconst takes its namespace-less branch when self is
+                // the top-level object. Reaching it is the only way `::NAME`
+                // can answer for such a constant. (A class or module reaches
+                // Object's table too, via define_class, so this arm only
+                // matters for plain constants.) It stays on the first
+                // segment, and only for a root that IS Object, so that a
+                // nested constant cannot answer through `::`.
+                (None, RValue::Class(klass)) if Rc::ptr_eq(klass, &vm.object_class) => {
+                    vm.consts.get(first).cloned()
+                }
+                _ => found,
+            }
+        }
+    };
+
+    for name in rest {
+        current = match current.as_ref().and_then(module_of) {
+            Some(m) => lookup_mcnst(&m, name),
+            None => None,
+        };
+        if current.is_none() {
+            break;
+        }
+    }
+
+    Ok(defined_as("constant", current.is_some()))
+}
+
+// `defined?(foo)` where foo is a method call
+fn mrb_kernel_defined_method(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let name = defined_arg_name(args, "__defined_method?")?;
+    let this = vm.getself()?;
+    let binding = this.singleton_or_this_class(vm);
+    Ok(defined_as(
+        "method",
+        resolve_method(&binding, &name).is_some(),
+    ))
+}
+
+// `defined?(recv.foo)`, with the receiver already evaluated.
+fn mrb_kernel_defined_method_on(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let recv = args.first().ok_or_else(|| {
+        Error::ArgumentError("__defined_method_on? expects a receiver".to_string())
+    })?;
+    let name = defined_arg_name(&args[1..], "__defined_method_on?")?;
+    let binding = recv.singleton_or_this_class(vm);
+    Ok(defined_as(
+        "method",
+        resolve_method(&binding, &name).is_some(),
+    ))
+}
+
+// `defined?(@foo)`
+fn mrb_kernel_defined_ivar(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let name = defined_arg_name(args, "__defined_ivar?")?;
+    let this = vm.getself()?;
+    let found = this.ivar.borrow().contains_key(&name);
+    Ok(defined_as("instance-variable", found))
+}
+
+// `defined?($foo)`
+fn mrb_kernel_defined_gvar(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let name = defined_arg_name(args, "__defined_gvar?")?;
+    Ok(defined_as(
+        "global-variable",
+        vm.globals.contains_key(&name),
+    ))
 }
 
 pub fn mrb_object_triple_eq(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {

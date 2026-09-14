@@ -3,6 +3,7 @@ extern crate mrubyedge;
 mod helpers;
 use helpers::*;
 use mrubyedge::yamrb::value::RObject;
+use std::rc::Rc;
 
 #[test]
 fn equal_test() {
@@ -78,4 +79,90 @@ fn equal_test() {
         .try_into()
         .unwrap();
     assert!(result);
+}
+
+// OP_EQ compared identity and never asked the object, so a class that
+// defines its own == had it quietly ignored.
+
+fn run_test_main(name: &'static str, code: &'static str) -> Rc<RObject> {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[]).unwrap()
+}
+
+#[test]
+fn user_defined_equals_is_asked_test() {
+    let code = r##"
+    class Point
+      attr_reader :x, :y
+      def initialize(x, y)
+        @x = x
+        @y = y
+      end
+      def ==(other)
+        return false unless other.is_a?(Point)
+        @x == other.x && @y == other.y
+      end
+    end
+
+    def test_main
+      same = Point.new(1, 2) == Point.new(1, 2)
+      diff = Point.new(1, 2) == Point.new(1, 3)
+      other = Point.new(1, 2) == "not a point"
+      "#{same}|#{diff}|#{other}"
+    end
+    "##;
+    let result: String = run_test_main("user_defined_equals", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "true|false|false");
+}
+
+#[test]
+fn dispatching_equals_leaves_the_caller_registers_alone_test() {
+    // The callee needs a register window of its own; sharing the caller's
+    // frame overwrites whatever the surrounding expression was holding.
+    let code = r##"
+    class Point
+      attr_reader :x
+      def initialize(x)
+        @x = x
+      end
+      def ==(other)
+        @x == other.x
+      end
+    end
+
+    def test_main
+      label = "kept"
+      flag = Point.new(1) == Point.new(1)
+      "#{label}:#{flag}"
+    end
+    "##;
+    let result: String = run_test_main("equals_registers", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "kept:true");
+}
+
+#[test]
+fn an_object_without_its_own_equals_still_compares_by_identity_test() {
+    let code = r##"
+    class Plain
+    end
+
+    def test_main
+      a = Plain.new
+      "#{a == a}|#{a == Plain.new}"
+    end
+    "##;
+    let result: String = run_test_main("plain_equals", code)
+        .as_ref()
+        .try_into()
+        .unwrap();
+    assert_eq!(result, "true|false");
 }

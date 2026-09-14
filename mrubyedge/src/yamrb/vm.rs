@@ -77,6 +77,11 @@ pub struct VM {
     pub regs: [Option<Rc<RObject>>; MAX_REGS_SIZE],
     pub current_regs_offset: usize,
     pub current_callinfo: Option<Rc<CALLINFO>>,
+    /// The identity `super` falls back to when there is no `callinfo`,
+    /// which is the case for a method entered through `mrb_funcall`. It is
+    /// set while such a method runs and cleared while a plain block runs,
+    /// so `super` never reads a stale identity.
+    pub method_frame: Option<(RSym, Rc<RModule>)>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
     pub kargs: RefCell<Option<RHashMap<RSym, Rc<RObject>>>>,
     pub current_kargs: RefCell<Option<Rc<KArgs>>>,
@@ -293,6 +298,7 @@ impl VM {
             regs,
             current_regs_offset,
             current_callinfo,
+            method_frame: None,
             current_breadcrumb,
             kargs,
             current_kargs,

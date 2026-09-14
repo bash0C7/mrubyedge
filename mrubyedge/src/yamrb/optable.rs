@@ -1144,12 +1144,21 @@ pub(crate) fn do_op_send_with_id(
     }
     vm.kargs.borrow_mut().replace(map);
 
+    // Known approximation: matching on IREP identity treats a method that
+    // forwards a block created by ANOTHER activation of the same IREP as
+    // the block's birthplace too; mruby tells these apart by frame identity.
+    let mut block_written_here = false;
     if let Some(blk_index) = blk_index {
         let blk_val = vm.get_current_regs_cloned(blk_index)?;
         if matches!(blk_val.tt, RType::Symbol) {
             let proc_val = mrb_funcall(vm, Some(blk_val), "to_proc", &[])?;
             args.push(proc_val);
         } else {
+            if let RValue::Proc(p) = &blk_val.value
+                && let Some(pirep) = &p.irep
+            {
+                block_written_here = vm.current_irep.reps.iter().any(|r| Rc::ptr_eq(r, pirep));
+            }
             args.push(blk_val);
         }
     } else {
@@ -1207,6 +1216,23 @@ pub(crate) fn do_op_send_with_id(
         match res {
             Ok(val) => {
                 vm.current_regs()[a as usize].replace(val);
+                let cur = vm
+                    .current_breadcrumb
+                    .take()
+                    .expect("send should push breadcrumb");
+                let upper = cur.upper.clone();
+                vm.current_breadcrumb
+                    .replace(upper.expect("should have upper breadcrumb"));
+            }
+            // A `break` ends the call whose block it was written for, the
+            // way OP_BREAK does for a Ruby-implemented method. A block
+            // literal written at this call site makes this that call, so
+            // the break lands here with its value. A block merely forwarded
+            // from the caller (`&b`) or reached through `yield`/`Proc#call`
+            // belongs to an outer frame and has to keep unwinding.
+            Err(Error::Break(value)) if block_written_here => {
+                vm.current_regs()[a as usize].replace(value);
+                vm.exception.take();
                 let cur = vm
                     .current_breadcrumb
                     .take()
@@ -1311,14 +1337,18 @@ pub(crate) fn op_call(vm: &mut VM, _operand: &Fetched) -> Result<(), Error> {
 
 pub(crate) fn op_super(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
-    let callinfo = vm
-        .current_callinfo
-        .as_ref()
-        .ok_or_else(|| Error::internal("no current callinfo"))?;
-    let sym_id = callinfo.method_id.name.clone();
-    let owner_module = callinfo
-        .method_owner
-        .clone()
+    let (sym_id, owner_module) = match vm.current_callinfo.as_ref() {
+        Some(callinfo) => (
+            callinfo.method_id.name.clone(),
+            callinfo.method_owner.clone(),
+        ),
+        // Entered through mrb_funcall: the identity is on the VM instead.
+        None => match vm.method_frame.as_ref() {
+            Some((method_id, owner)) => (method_id.name.clone(), Some(owner.clone())),
+            None => return Err(Error::internal("no method frame for super")),
+        },
+    };
+    let owner_module = owner_module
         .ok_or_else(|| Error::RuntimeError("super called outside of method".to_string()))?;
     let recv = vm.getself()?;
     let args = (0..b)
@@ -1636,11 +1666,17 @@ fn do_return(vm: &mut VM, value: Option<Rc<RObject>>) -> Result<(), Error> {
 
 pub(crate) fn op_return_blk(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
+
+    // The compiler emits RETURN_BLK for a `return` that might be unwinding
+    // out of a block, which includes a `return` inside an `ensure`-protected
+    // method body as well as a method taking a `&block` parameter. With no
+    // enclosing block environment it is an ordinary method return, as in
+    // mruby's own OP_RETURN_BLK. The ensure body does not run on this path.
+    let Some(env) = vm.get_outermost_env() else {
+        return op_return(vm, operand);
+    };
+    let target_irep_id = env.__irep_id;
     let val = vm.get_current_regs_cloned(a)?;
-    let target_irep_id = vm
-        .get_outermost_env()
-        .expect("not found outermost env")
-        .__irep_id;
 
     Err(Error::BlockReturn(target_irep_id, val))
 }

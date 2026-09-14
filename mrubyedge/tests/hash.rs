@@ -404,3 +404,24 @@ fn hash_flatten_test() {
     assert!(ints.contains(&1));
     assert!(ints.contains(&2));
 }
+
+#[test]
+fn env_is_defined_and_is_a_hash_test() {
+    // ENV is built during the prelude, so anything that panics while filling
+    // it takes the VM down before a line of Ruby runs. The host's variables
+    // are only readable where the target has an environment.
+    let code = "
+    def test_main
+      ENV.is_a?(Hash)
+    end
+    ";
+    let binary = mrbc_compile("env_is_a_hash", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    let result = mrb_funcall(&mut vm, None, "test_main", &[]).unwrap();
+    assert!(matches!(
+        result.as_ref().value,
+        mrubyedge::yamrb::value::RValue::Bool(true)
+    ));
+}

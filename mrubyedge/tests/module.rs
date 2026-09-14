@@ -246,3 +246,98 @@ MyClass.new.greet
         .expect("greet should return string");
     assert_eq!(value, "hello from Inner");
 }
+
+// Compiles and runs `code`, returning the top-level result as a String.
+fn run_top_level_s(name: &'static str, code: &'static str) -> String {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    let result = vm.run().unwrap();
+    result.as_ref().try_into().unwrap()
+}
+
+// Compiles and runs `code`, then calls `test_main` and converts the result
+// to an i64.
+fn run_test_main_i(name: &'static str, code: &'static str) -> i64 {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[])
+        .unwrap()
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
+
+#[test]
+fn a_modules_instance_variables_are_the_same_from_anywhere() {
+    // A module's ivars live on the object that stands for it. Handing out a
+    // fresh wrapper per lookup gave the same module a second, empty set:
+    // written from the top level, read as nil from inside another module.
+    let code = "
+    module Store
+      def self.set(v)
+        @value = v
+      end
+      def self.get
+        @value
+      end
+    end
+
+    Store.set('kept')
+
+    module Reader
+      def self.read
+        Store.get
+      end
+    end
+
+    class Klass
+      def self.read
+        Store.get
+      end
+      def read
+        Store.get
+      end
+    end
+
+    [Store.get, Reader.read, Klass.read, Klass.new.read].join(',')
+    ";
+    let result = run_top_level_s("module_ivar_identity", code);
+    assert_eq!(&result, "kept,kept,kept,kept");
+}
+
+#[test]
+fn a_module_can_have_singleton_methods() {
+    let code = "
+    module Registry
+      class << self
+        def count
+          2
+        end
+      end
+
+      def self.double
+        count * 2
+      end
+    end
+
+    def test_main
+      Registry.double
+    end
+    ";
+    assert_eq!(run_test_main_i("module_singleton", code), 4);
+}
+
+#[test]
+fn a_class_prints_as_its_name() {
+    let code = "
+    module Outer
+      class Inner; end
+    end
+    [Outer::Inner.to_s, Outer::Inner.name, Outer.to_s].join(',')
+    ";
+    let result = run_top_level_s("module_to_s", code);
+    assert_eq!(&result, "Outer::Inner,Outer::Inner,Outer");
+}

@@ -85,7 +85,7 @@ fn mrb_module_ancestors(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject
     };
     let ancestors: Vec<Rc<RObject>> = build_module_lookup_chain(&target_module)
         .iter()
-        .map(|m| RObject::module(m.clone()).to_refcount_assigned())
+        .map(|m| RObject::module_of(m.clone(), vm))
         .collect();
     Ok(RObject::array(ancestors).to_refcount_assigned())
 }

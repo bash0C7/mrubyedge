@@ -2081,19 +2081,24 @@ pub(crate) fn op_hashadd(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     Ok(())
 }
 
-// R[a] = hash_cat(R[a], R[a+1]). **other in a hash literal or an
-// argument list. Later keys win, as in Hash#merge.
+// R[a] = hash_cat(R[a], R[a+1]). **other in a hash literal. Later keys
+// win, as in Hash#merge. (Argument-list ** compiles to this opcode too,
+// but additionally needs variable-length keyword support in OP_SEND,
+// which is not implemented.)
 pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
     let target = vm.get_current_regs_cloned(a)?;
     let other = vm.get_current_regs_cloned(a + 1)?;
 
-    // Collect first: `h = {**h}` would otherwise borrow the same RefCell twice.
-    let pairs: Vec<_> = other
-        .hash_borrow_mut()?
-        .iter()
-        .map(|(hashed, (key, val))| (hashed.clone(), key.clone(), val.clone()))
-        .collect();
+    // Collect first so the source hash's borrow is released before the target is mutated.
+    let pairs: Vec<_> = match &other.value {
+        RValue::Hash(h) => h
+            .borrow()
+            .iter()
+            .map(|(hashed, (key, val))| (hashed.clone(), key.clone(), val.clone()))
+            .collect(),
+        _ => return Err(Error::TypeMismatch),
+    };
     for (hashed, key, val) in pairs {
         target.hash_borrow_mut()?.insert(hashed, (key, val));
     }

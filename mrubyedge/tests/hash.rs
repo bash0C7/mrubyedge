@@ -439,3 +439,53 @@ fn a_later_key_wins_over_the_splatted_one_test() {
     let result: String = result.as_ref().try_into().unwrap();
     assert_eq!(&result, "2");
 }
+
+#[test]
+fn a_splat_only_hash_literal_copies_it_test() {
+    // OP_HASHCAT with no following OP_HASHADD.
+    let code = "
+    other = { a: 1, b: 2 }
+    h = { **other }
+    h.keys.map { |k| k.to_s }.sort.join(',')
+    ";
+    let binary = mrbc_compile("a_splat_only_hash_literal_copies_it", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+
+    // Assert
+    let result = vm.run().unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(&result, "a,b");
+}
+
+#[test]
+fn hash_cat_does_not_panic_when_the_source_hash_is_shared_borrowed_test() {
+    // Regression test: op_hashcat used to take other.hash_borrow_mut(),
+    // which panicked (RefCell already borrowed) when a hash literal with
+    // a double splat was built from inside a block that Hash#each was
+    // already iterating over with a shared borrow.
+    let code = "
+    def test_hash_cat_inside_each
+      h = { a: 1, b: 2 }
+      sizes = []
+      h.each do |k, v|
+        x = { **h }
+        sizes << x.size
+      end
+      sizes.size
+    end
+    ";
+    let binary = mrbc_compile(
+        "hash_cat_does_not_panic_when_the_source_hash_is_shared_borrowed",
+        code,
+    );
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    // Assert
+    let args = vec![];
+    let result = mrb_funcall(&mut vm, None, "test_hash_cat_inside_each", &args).unwrap();
+    let result: i64 = result.as_ref().try_into().unwrap();
+    assert_eq!(result, 2);
+}

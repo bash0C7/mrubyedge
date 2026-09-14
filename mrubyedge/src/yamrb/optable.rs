@@ -718,30 +718,86 @@ pub(crate) fn op_setiv(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_getconst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
     let name = vm.current_irep.syms[b as usize].name.clone();
-    let mut current = current_namespace(vm);
 
-    // Walk namespace chain upwards until found or reach top-level
-    while let Some(ns) = current.clone() {
-        if let Some(val) = ns.consts.borrow().get(&name).cloned() {
+    match resolve_const(vm, &name) {
+        Some(val) => {
             vm.current_regs()[a as usize].replace(val);
-            return Ok(());
+            Ok(())
+        }
+        None => Err(Error::NameError(name)),
+    }
+}
+
+// Constant lookup as OP_GETCONST does it: the enclosing namespaces first,
+// then the ancestors of the class the running method belongs to, then the
+// top level.
+pub(crate) fn resolve_const(vm: &mut VM, name: &str) -> Option<Rc<RObject>> {
+    // Inside a class or module body, self is that class or module: walk it
+    // and the namespaces it is nested in.
+    if let Some(val) = lookup_const_upwards(current_namespace(vm), name) {
+        return Some(val);
+    }
+
+    // Inside a method, self is an instance: the constant belongs to the
+    // class the method is defined on, to one of its ancestors, or to a
+    // namespace that class is nested in. Self is a Class itself when
+    // executing a class body or a `def self.x` class method, so the same
+    // ancestor walk must start from it too, or an inherited constant is
+    // unreachable now that op_setconst no longer falls back to the global
+    // table. (RValue::Module gets no analogous ancestor(mixin)-chain
+    // treatment here; that case is out of scope.)
+    //
+    // This walk starts from self's runtime class, not from the class that
+    // lexically owns the executing method (mruby's cref/target class), so
+    // shadowing a constant in a subclass can differ from real mruby's
+    // answer for a method defined on the superclass. A fully faithful fix
+    // would resolve the method's owning class from callinfo instead; that
+    // is out of scope here.
+    if let Ok(this) = vm.getself() {
+        let klass = match &this.value {
+            RValue::Instance(instance) => Some(instance.class.clone()),
+            RValue::Class(klass) => Some(klass.clone()),
+            _ => None,
+        };
+        if let Some(klass) = klass {
+            for ancestor in build_lookup_chain(&klass).iter() {
+                let found = lookup_const_upwards(Some(ancestor.as_module()), name);
+                if found.is_some() {
+                    return found;
+                }
+            }
+        }
+    }
+
+    vm.consts.get(name).cloned()
+}
+
+// Looks name up in namespace and then in the namespaces it is nested in.
+fn lookup_const_upwards(namespace: Option<Rc<RModule>>, name: &str) -> Option<Rc<RObject>> {
+    let mut current = namespace;
+    while let Some(ns) = current.clone() {
+        if let Some(val) = ns.consts.borrow().get(name).cloned() {
+            return Some(val);
         }
         current = ns.parent.borrow().clone();
     }
-
-    if let Some(val) = vm.consts.get(&name).cloned() {
-        vm.current_regs()[a as usize].replace(val);
-        return Ok(());
-    }
-
-    Err(Error::NameError(name))
+    None
 }
 
 pub(crate) fn op_setconst(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b) = operand.as_bb()?;
     let name = vm.current_irep.syms[b as usize].name.clone();
     let val = vm.get_current_regs_cloned(a as usize)?;
-    vm.consts.insert(name, val);
+    // A constant assigned inside a class or module body belongs to that
+    // namespace, which is where `Foo::BAR` (op_getmcnst) looks for it.
+    match current_namespace(vm) {
+        Some(namespace) => {
+            namespace.consts.borrow_mut().insert(name, val);
+        }
+        None => {
+            vm.consts.insert(name, val);
+        }
+    }
     Ok(())
 }
 

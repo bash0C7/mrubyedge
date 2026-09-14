@@ -28,18 +28,28 @@ pub(crate) fn initialize_data(vm: &mut VM) {
 }
 
 fn members_of(class: &Rc<RClass>) -> Vec<RSym> {
-    let members = class.consts.borrow().get(MEMBERS).cloned();
-    match members.as_ref().map(|m| &m.value) {
-        Some(RValue::Array(names)) => names
-            .borrow()
-            .iter()
-            .filter_map(|name| match &name.value {
-                RValue::Symbol(sym) => Some(sym.clone()),
-                _ => None,
-            })
-            .collect(),
-        _ => Vec::new(),
+    // A subclass of a generated Data class (`class Point3 < Point; end`)
+    // has no `__data_members__` of its own, so walk up to find the
+    // ancestor that declared it.
+    let mut current = Some(class.clone());
+    while let Some(c) = current {
+        let members = c.consts.borrow().get(MEMBERS).cloned();
+        match members.as_ref().map(|m| &m.value) {
+            Some(RValue::Array(names)) => {
+                return names
+                    .borrow()
+                    .iter()
+                    .filter_map(|name| match &name.value {
+                        RValue::Symbol(sym) => Some(sym.clone()),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            _ => {}
+        }
+        current = c.super_class.clone();
     }
+    Vec::new()
 }
 
 fn self_class(vm: &mut VM, who: &str) -> Result<Rc<RClass>, Error> {
@@ -72,12 +82,14 @@ fn mrb_data_define(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Err
     for arg in args.iter() {
         match &arg.value {
             RValue::Symbol(sym) => members.push(sym.clone()),
-            // A block would arrive here too; Data.define takes one to add
-            // methods, which needs a Ruby-level class body we cannot run.
             RValue::String(_, _) => members.push(RSym::new(arg.as_ref().try_into()?)),
+            // A block arrives here too (as an RValue::Proc); Data.define
+            // takes one to add methods, which needs a Ruby-level class
+            // body we cannot run.
             _ => {
                 return Err(Error::ArgumentError(
-                    "Data.define expects Symbol member names".to_string(),
+                    "Data.define expects Symbol member names (a block is not supported)"
+                        .to_string(),
                 ));
             }
         }
@@ -138,7 +150,14 @@ fn mrb_data_define(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Err
 fn mrb_data_new(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let class = self_class(vm, "Data.new")?;
     let members = members_of(&class);
-    let kwargs = vm.get_kwargs().unwrap_or_default();
+    // A keyword call never carries positional arguments; deciding the mode from
+    // `args` keeps a stale kwarg frame (OP_GETIDX reaches here via mrb_funcall,
+    // which does not push one) from being mistaken for this call's keywords.
+    let kwargs = if args.is_empty() {
+        vm.get_kwargs().unwrap_or_default()
+    } else {
+        RHashMap::default()
+    };
 
     if !kwargs.is_empty() {
         for key in kwargs.keys() {

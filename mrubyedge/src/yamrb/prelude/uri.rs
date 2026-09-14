@@ -58,13 +58,15 @@ fn decode_component(value: &str) -> String {
                 i += 1;
             }
             b'%' if i + 2 < bytes.len() => {
-                let hex = &value[i + 1..i + 3];
-                match u8::from_str_radix(hex, 16) {
-                    Ok(byte) => {
+                match std::str::from_utf8(&bytes[i + 1..i + 3])
+                    .ok()
+                    .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+                {
+                    Some(byte) => {
                         out.push(byte);
                         i += 3;
                     }
-                    Err(_) => {
+                    None => {
                         out.push(b'%');
                         i += 1;
                     }

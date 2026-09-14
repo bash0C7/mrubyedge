@@ -44,3 +44,16 @@ fn encode_and_decode_a_component() {
         "a+b%26c%3Dd%2Fe|a b&c=d/e"
     );
 }
+
+#[test]
+fn decode_with_multibyte_utf8_literal_percent() {
+    let code = r##"
+    def test_main
+      URI.decode_www_form_component("100%満足")
+    end
+    "##;
+    assert_eq!(
+        run_test_main_s("uri_multibyte", code),
+        "100%満足"
+    );
+}

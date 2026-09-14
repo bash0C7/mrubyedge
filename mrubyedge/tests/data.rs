@@ -125,3 +125,44 @@ fn data_to_s_test() {
     "##;
     assert_eq!(run_test_main_s("data_to_s", code), "true");
 }
+
+#[test]
+fn data_bracket_constructor_ignores_callers_rest_kwargs_test() {
+    // `One[7]` (a single positional argument) compiles to OP_GETIDX, which
+    // reaches mrb_data_new through mrb_funcall without a fresh kwarg frame.
+    // A `**rest` parameter in the calling method leaves the caller's own
+    // keyword frame live for the whole method body, so a naive
+    // `vm.get_kwargs()` inside `mrb_data_new` would see the caller's `v: 99`
+    // and mistake it for this call's keywords. The positional argument must
+    // win.
+    let code = r##"
+    One = Data.define(:v)
+    def build(**opts)
+      One[7].v.to_s
+    end
+    def test_main
+      build(v: 99)
+    end
+    "##;
+    assert_eq!(
+        run_test_main_s("data_bracket_rest_kwargs", code),
+        "7"
+    );
+}
+
+#[test]
+fn data_subclass_inherits_members_test() {
+    let code = r##"
+    Point = Data.define(:x, :y)
+    class Point3 < Point
+    end
+    def test_main
+      a = Point3.new(1, 2)
+      "#{Point3.members}|#{a.x},#{a.y}"
+    end
+    "##;
+    assert_eq!(
+        run_test_main_s("data_subclass_members", code),
+        "[:x, :y]|1,2"
+    );
+}

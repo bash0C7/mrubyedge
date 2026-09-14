@@ -2240,12 +2240,14 @@ pub(crate) fn op_module(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         parent
             .consts
             .borrow_mut()
-            .insert(name.clone(), module_value);
+            .insert(name.clone(), module_value.clone());
     } else {
-        vm.consts.insert(name.clone(), module_value);
+        vm.consts.insert(name.clone(), module_value.clone());
     }
 
-    vm.current_regs()[a as usize].replace(Rc::new(module.into()));
+    // Reuse the interned wrapper (not a fresh Rc::new) so `self` inside the
+    // module body has a real object_id and its ivars land on this object.
+    vm.current_regs()[a as usize].replace(module_value);
     Ok(())
 }
 
@@ -2393,7 +2395,7 @@ pub(crate) fn op_tclass(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_b()? as usize;
     let val: Rc<RObject> = match &vm.target_class {
         TargetContext::Class(klass) => RObject::class(klass.clone(), vm),
-        TargetContext::Module(module) => Rc::new(module.clone().into()),
+        TargetContext::Module(module) => RObject::module_of(module.clone(), vm),
     };
     vm.current_regs()[a].replace(val);
     Ok(())

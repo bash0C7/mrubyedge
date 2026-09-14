@@ -489,7 +489,10 @@ impl RObject {
                 }
                 let singleton_name = format!("#<Class:{}>", m.full_name());
                 let super_class = vm.get_class_by_name("Module");
-                let parent_module = m.parent.borrow().clone();
+                // Match the class branch below: a singleton class's parent_module
+                // comes from get_class(vm).parent (always None here), not from the
+                // module's own nesting, so its name/interning key is unqualified.
+                let parent_module = self.get_class(vm).parent.borrow().clone();
                 let sclass = Rc::new(RClass::new_singleton(
                     &singleton_name,
                     Some(super_class),

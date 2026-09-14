@@ -331,6 +331,30 @@ fn a_module_can_have_singleton_methods() {
 }
 
 #[test]
+fn a_module_bodys_ivar_is_visible_from_a_reader_method() {
+    // An ivar assigned directly in a module body (not inside a def self.)
+    // must land on the module's own object, and `self` inside that body
+    // must be the same object as the module constant itself.
+    // IDENTITY is assigned as a bare constant (not Config::IDENTITY) because
+    // this VM's SETCONST always writes to the top-level namespace rather than
+    // the enclosing module -- unrelated to this fix, so this test works around it.
+    let code = "
+    module Config
+      @settings = 'from-body'
+      IDENTITY = (self == Config)
+
+      def self.settings
+        @settings
+      end
+    end
+
+    [Config.settings, IDENTITY].join(',')
+    ";
+    let result = run_top_level_s("module_body_ivar", code);
+    assert_eq!(&result, "from-body,true");
+}
+
+#[test]
 fn a_class_prints_as_its_name() {
     let code = "
     module Outer

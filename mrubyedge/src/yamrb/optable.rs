@@ -422,12 +422,12 @@ pub(crate) fn consume_expr(
         HASH => {
             op_hash(vm, operand)?;
         }
-        // HASHADD => {
-        //     // op_hashadd(vm, &operand)?;
-        // }
-        // HASHCAT => {
-        //     // op_hashcat(vm, &operand)?;
-        // }
+        HASHADD => {
+            op_hashadd(vm, operand)?;
+        }
+        HASHCAT => {
+            op_hashcat(vm, operand)?;
+        }
         LAMBDA => {
             op_lambda(vm, operand)?;
         }
@@ -2062,6 +2062,41 @@ pub(crate) fn op_hash(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     }
     let val = RObject::hash(hash);
     vm.current_regs()[a].replace(Rc::new(val));
+    Ok(())
+}
+
+// hash_push(R[a], R[a+1]..R[a+b*2]). The pairs a hash literal writes
+// after a **splat has already produced the hash in R[a].
+pub(crate) fn op_hashadd(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let (a, b) = operand.as_bb()?;
+    let a = a as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    for i in 0..b as usize {
+        let key = vm.get_current_regs_cloned(a + i * 2 + 1)?;
+        let val = vm.get_current_regs_cloned(a + i * 2 + 2)?;
+        target
+            .hash_borrow_mut()?
+            .insert(key.as_hash_key()?, (key, val));
+    }
+    Ok(())
+}
+
+// R[a] = hash_cat(R[a], R[a+1]). **other in a hash literal or an
+// argument list. Later keys win, as in Hash#merge.
+pub(crate) fn op_hashcat(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
+    let a = operand.as_b()? as usize;
+    let target = vm.get_current_regs_cloned(a)?;
+    let other = vm.get_current_regs_cloned(a + 1)?;
+
+    // Collect first: `h = {**h}` would otherwise borrow the same RefCell twice.
+    let pairs: Vec<_> = other
+        .hash_borrow_mut()?
+        .iter()
+        .map(|(hashed, (key, val))| (hashed.clone(), key.clone(), val.clone()))
+        .collect();
+    for (hashed, key, val) in pairs {
+        target.hash_borrow_mut()?.insert(hashed, (key, val));
+    }
     Ok(())
 }
 

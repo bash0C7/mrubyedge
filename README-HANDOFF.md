@@ -49,7 +49,7 @@ bash0C7-homepage 本体（bash0c7-homepage repo）の作業はそちら側の担
 |---|---|---|---|
 | A1 | 呼び出し側 splat 引数の PANIC（SEND の n=15=CALL_MAXARGS） | **実装済み・push済み** | このセッション、`work/a1-splat-call-panic` |
 | A2 | yield のブロック探索 PANIC（BLKPUSH） | 未着手 | — |
-| A3 | begin を出る return PANIC（RETURN_BLK） | 未着手 | — |
+| A3 | begin を出る return PANIC（RETURN_BLK） | **実装済み・push済み**（repro直接確認済み。ただしOP_BREAK unwind先バグ・`mrb_funcall`経由superバグの2件が同じcommitに同居、新規発見として別報告） | bash0c7-homepage側、`unwind-break-return-super` |
 | A4 | Module の singleton クラス PANIC | **実装済み・push済み**（A4単体より範囲が広い：module intern化・`Module#to_s`/`#name`も同居） | bash0c7-homepage側、`module-identity-and-singleton-class` |
 | A5 | クラス変数 GETCV/SETCV | 未着手 | — |
 | A6 | SETMCNST | 未着手 | — |
@@ -62,22 +62,26 @@ bash0C7-homepage 本体（bash0c7-homepage repo）の作業はそちら側の担
 | A13 | コンテナの堅牢化（3コミット分割可） | 未着手 | — |
 | A14 | optional+restパラメータのレジスタ配置 | 帰属確定・未実装（`fix/op-enter-optional-rest`=`cc03daf`が既にorigin上に存在、これをそのまま採用するかは要検討） | Track A側で拾う（2026-09-14合意） |
 
-## 新規に見つかった、未確認の重複可能性（要確認・最優先でここから見る）
+## 未検証branchの分類状況（2026-09-18更新）
 
-セッション中断の直前、`git branch -vv` で **bash0c7-homepage側が作った、まだ push 依頼が来ていない
-local branch/worktree** が複数見つかった（push依頼が来ていないので中身を検証していない）:
+前回中断時に見つけた未push branchを`git log`/`git show --stat`、一部は実際にrepro再テストして分類した:
 
-- `unwind-break-return-super`（worktree: `mrubyedge-pr-unwind-break-return-super`）—
-  **"Unwind OP_RETURN_BLK, OP_BREAK and OP_SUPER the way vm.c does"。A2/A3/A10と重複する可能性が高い。最優先で中身を確認すること。**
-- `per-activation-environment`（`mrubyedge-pr-per-activation-environment`）— "Give each activation its own environment"。A2のBLKPUSH/env問題と関係あるかもしれない
-- `add-env-and-uri`（`mrubyedge-pr-env-and-uri`）
-- `basicobject-and-object-core`（`mrubyedge-pr-basicobject-and-object-core`）
-- `data-layer-hash-enumerable-array-exception`（`mrubyedge-pr-hash-enumerable-array-exception`）
-- `defined-support`（`mrubyedge-pr-defined-support`）— mruby 4.0 の `defined?` 対応、Track Bと関係あるかも
+- **`unwind-break-return-super` → 確認済み。A3(RETURN_BLK)を含む。push済み。** ただし同じ1commitに
+  OP_BREAKのunwind先バグ（`[1,2,3].each{break}`が呼び出し元methodへ抜ける）と`mrb_funcall`経由
+  （`Class#new`→`initialize`）でsuperが呼べないバグが同居。**この2つはTrack Aのどの項目にも無い新規発見。**
+  Track A追加候補としてbash0c7-homepage-41へ報告済み、user判断待ち（番号は未確定）
+- **`per-activation-environment` → 未push。** "Give each activation its own environment"。
+  環境がIREP idでファイルされ再帰呼び出しで上書きされるバグ。RITE0400非依存のVM正当性バグで
+  **Track A候補**（A2のBLKPUSH問題とは別原因と見ている、要検証）
+- **`defined-support` → 未push。** mruby4.0の`__defined_*?`呼び出し対応（3.3は別方式でinline）。
+  **RITE0400依存なのでTrack B候補、Track Aではない。**
+- **`add-env-and-uri` / `basicobject-and-object-core` / `data-layer-hash-enumerable-array-exception`
+  → 未push。** stdlib/prelude層のメソッド追加（ENV/URI、BasicObject階層、Hash等）。**Track A範囲外**、
+  string-ext・add-data-classと同じくbash0c7-homepage独自プロジェクトの範囲
 
-これらはTrack Aの範囲か、bash0c7-homepage独自の範囲か、A2/A3/A10との重複があるかを、push依頼が来た時点で
-（あるいはこちらから先に`git log`/`git show --stat`で）確認する。**push依頼が来る前に先読みして構わない**
-（読むだけなら centralization の対象外）。
+bash0c7-homepage側は全16 unitのうち残り7 unit(#3/#4/#8/#9/#10/#15/#16)のorchestratorを順次
+再ディスパッチ中（2026-09-18時点）。push依頼はこれからも来る。**push依頼が来る前に`git branch -vv`で
+先読みして構わない**（読むだけならcentralizationの対象外）。
 
 ## push待ち・保留中
 

@@ -2,7 +2,11 @@ use std::rc::Rc;
 
 use crate::{
     Error,
-    yamrb::{helpers::mrb_define_cmethod, value::*, vm::VM},
+    yamrb::{
+        helpers::{mrb_call_hook, mrb_define_cmethod},
+        value::*,
+        vm::VM,
+    },
 };
 
 pub(crate) fn initialize_module(vm: &mut VM) {
@@ -48,6 +52,15 @@ fn mrb_module_include(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, 
             ));
         }
     };
+
+    // `def self.included(base)` on the mixin, the usual place a module hangs
+    // its ClassMethods off the including class.
+    mrb_call_hook(
+        vm,
+        arg0.clone(),
+        "included",
+        std::slice::from_ref(&self_obj),
+    )?;
 
     Ok(self_obj)
 }

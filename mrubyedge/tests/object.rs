@@ -571,6 +571,21 @@ fn basic_object_is_the_root_of_the_hierarchy_test() {
 }
 
 #[test]
+fn every_object_reaches_basic_object_through_object_test() {
+    let code = "
+    class Plain; end
+
+    def test_main
+      [Plain, Integer].map { |k| k.ancestors.map { |a| a.inspect }.join(',') }.join(';')
+    end
+    ";
+    assert_eq!(
+        run_test_main_s("object_under_basic_object", code),
+        "Plain,Object,BasicObject;Integer,Object,BasicObject"
+    );
+}
+
+#[test]
 fn a_basic_object_subclass_has_no_object_methods_test() {
     let code = "
     class Bare < BasicObject
@@ -637,6 +652,16 @@ fn symbols_and_nil_are_identical_across_references_test() {
     end
     ";
     assert!(run_test_main_b("equal_identity_singletons", code));
+}
+
+#[test]
+fn numbers_of_the_same_value_are_identical_test() {
+    let code = "
+    def test_main
+      1.equal?(1) && 1.5.equal?(1.5)
+    end
+    ";
+    assert!(run_test_main_b("equal_identity_numbers", code));
 }
 
 // BasicObject#! is true for nil and false only.

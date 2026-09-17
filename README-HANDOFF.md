@@ -81,13 +81,14 @@ local branch/worktree** が複数見つかった（push依頼が来ていない�
 
 ## push待ち・保留中
 
-- **`add-data-class`（`Data.define`実装、bash0c7-homepage側）: fmt差分2箇所を指摘し修正依頼中、再送待ち。** worktree: `mrubyedge-pr-data-class`。Track Aの範囲外（stdlib/prelude）。
+（現在無し）
 
 ## Track Aの範囲外と判断したもの（bash0c7-homepage独自プロジェクトとして進行）
 
 - `constant-lookup-through-namespace-and-class`（push済み）— 定数解決のnamespace/ancestor chain対応
 - `string-sub-gsub-slice-range-and-more`（push済み）— String#sub/gsub/slice(Range)等
 - `op-eq-dispatch-honors-user-defined-equals`（push済み、centralization前のpush、そのままでよい扱い）
+- `add-data-class`（push済み、`Data.define`実装、fmt差分は修正依頼→再送で解消済み）
 
 ## 環境の再現
 

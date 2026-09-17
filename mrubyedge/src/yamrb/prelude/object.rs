@@ -85,13 +85,6 @@ pub(crate) fn initialize_object(vm: &mut VM) {
         Box::new(mrb_object_double_eq),
     );
     mrb_define_cmethod(vm, object_class.clone(), "!=", Box::new(mrb_object_not_eq));
-    mrb_define_cmethod(vm, object_class.clone(), "!", Box::new(mrb_object_not));
-    mrb_define_cmethod(
-        vm,
-        object_class.clone(),
-        "equal?",
-        Box::new(mrb_object_equal),
-    );
     mrb_define_cmethod(
         vm,
         object_class.clone(),
@@ -293,6 +286,7 @@ fn mrb_object_equal(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Er
         (RValue::Nil, RValue::Nil) => true,
         (RValue::Bool(a), RValue::Bool(b)) => a == b,
         (RValue::Integer(a), RValue::Integer(b)) => a == b,
+        (RValue::Float(a), RValue::Float(b)) => a == b,
         (RValue::Symbol(a), RValue::Symbol(b)) => a == b,
         _ => Rc::ptr_eq(&this, &other),
     };

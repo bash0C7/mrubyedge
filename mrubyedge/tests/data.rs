@@ -71,7 +71,10 @@ fn data_members_and_to_h_and_inspect_test() {
       "#{Point.members}|#{a.to_h[:x]},#{a.to_h[:y]}|#{a.inspect}"
     end
     "##;
-    assert_eq!(run_test_main_s("data_members", code), "[:x, :y]|1,2|#<data x=1, y=2>");
+    assert_eq!(
+        run_test_main_s("data_members", code),
+        "[:x, :y]|1,2|#<data x=1, y=2>"
+    );
 }
 
 #[test]
@@ -144,10 +147,7 @@ fn data_bracket_constructor_ignores_callers_rest_kwargs_test() {
       build(v: 99)
     end
     "##;
-    assert_eq!(
-        run_test_main_s("data_bracket_rest_kwargs", code),
-        "7"
-    );
+    assert_eq!(run_test_main_s("data_bracket_rest_kwargs", code), "7");
 }
 
 #[test]

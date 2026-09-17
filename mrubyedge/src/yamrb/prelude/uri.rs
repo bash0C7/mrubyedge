@@ -47,6 +47,12 @@ fn encode_component(value: &str) -> String {
     out
 }
 
+// Not `u8::from_str_radix`: that reads a leading `+` as a sign, so `%+4` would
+// decode to a byte instead of staying a literal percent sign.
+fn hex_digit(byte: u8) -> Option<u8> {
+    (byte as char).to_digit(16).map(|digit| digit as u8)
+}
+
 fn decode_component(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -58,15 +64,12 @@ fn decode_component(value: &str) -> String {
                 i += 1;
             }
             b'%' if i + 2 < bytes.len() => {
-                match std::str::from_utf8(&bytes[i + 1..i + 3])
-                    .ok()
-                    .and_then(|hex| u8::from_str_radix(hex, 16).ok())
-                {
-                    Some(byte) => {
-                        out.push(byte);
+                match (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
+                    (Some(high), Some(low)) => {
+                        out.push(high << 4 | low);
                         i += 3;
                     }
-                    None => {
+                    _ => {
                         out.push(b'%');
                         i += 1;
                     }
@@ -98,12 +101,9 @@ fn form_value(value: &Rc<RObject>) -> Result<Option<String>, Error> {
 }
 
 fn push_pair(out: &mut Vec<String>, key: &Rc<RObject>, value: &Rc<RObject>) -> Result<(), Error> {
-    let key = match &key.value {
-        RValue::Symbol(s) => s.name.clone(),
-        RValue::Integer(i) => i.to_string(),
-        _ => key.as_ref().try_into()?,
-    };
-    let key = encode_component(&key);
+    // A key converts the same way a value does; nil writes an empty key, as
+    // Ruby's `URI.encode_www_form([[nil, 1]])` does.
+    let key = encode_component(&form_value(key)?.unwrap_or_default());
 
     // An Array value repeats the key, the way Ruby expands `[["a", [1, 2]]]`.
     if let RValue::Array(items) = &value.value {
@@ -130,8 +130,10 @@ fn mrb_uri_encode_www_form(_vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObj
 
     let mut parts: Vec<String> = Vec::new();
     match &enumerable.value {
+        // Ruby walks a Hash in insertion order; this VM's Hash does not keep one,
+        // so the order of the pairs a Hash produces here is unspecified.
         RValue::Hash(hash) => {
-            for (_, (key, value)) in hash.borrow().iter() {
+            for (key, value) in hash.borrow().values() {
                 push_pair(&mut parts, key, value)?;
             }
         }
@@ -176,12 +178,14 @@ fn mrb_uri_decode_www_form_component(
     _vm: &mut VM,
     args: &[Rc<RObject>],
 ) -> Result<Rc<RObject>, Error> {
-    let value: String = args
-        .first()
-        .ok_or_else(|| {
-            Error::ArgumentError("URI.decode_www_form_component expects an argument".to_string())
-        })?
-        .as_ref()
-        .try_into()?;
+    let value = args.first().ok_or_else(|| {
+        Error::ArgumentError("URI.decode_www_form_component expects an argument".to_string())
+    })?;
+    if !matches!(value.value, RValue::String(_, _)) {
+        return Err(Error::ArgumentError(
+            "URI.decode_www_form_component expects a String".to_string(),
+        ));
+    }
+    let value: String = value.as_ref().try_into()?;
     Ok(Rc::new(RObject::string(decode_component(&value))))
 }

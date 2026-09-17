@@ -52,8 +52,25 @@ fn decode_with_multibyte_utf8_literal_percent() {
       URI.decode_www_form_component("100%満足")
     end
     "##;
-    assert_eq!(
-        run_test_main_s("uri_multibyte", code),
-        "100%満足"
-    );
+    assert_eq!(run_test_main_s("uri_multibyte", code), "100%満足");
+}
+
+#[test]
+fn decode_leaves_a_percent_before_a_sign_literal() {
+    let code = r##"
+    def test_main
+      URI.decode_www_form_component("50%+2")
+    end
+    "##;
+    assert_eq!(run_test_main_s("uri_percent_sign", code), "50% 2");
+}
+
+#[test]
+fn encode_www_form_converts_non_string_keys_like_ruby() {
+    let code = r#"
+    def test_main
+      URI.encode_www_form([[nil, "a"], [true, "b"], [1.5, "c"], [:d, "e"]])
+    end
+    "#;
+    assert_eq!(run_test_main_s("uri_keys", code), "=a&true=b&1.5=c&d=e");
 }

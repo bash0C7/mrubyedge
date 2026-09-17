@@ -53,6 +53,10 @@ fn hex_digit(byte: u8) -> Option<u8> {
     (byte as char).to_digit(16).map(|digit| digit as u8)
 }
 
+// Lenient where Ruby raises: a `%` that does not begin a complete hex pair stays
+// a literal `%` and the walk moves on one byte, so `"100%満足"` decodes to itself
+// where Ruby answers ArgumentError. Ordinary prose carries a bare `%`, and an
+// embedded VM has nowhere useful to raise from a form decoder.
 fn decode_component(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());

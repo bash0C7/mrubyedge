@@ -425,3 +425,25 @@ fn env_is_defined_and_is_a_hash_test() {
         mrubyedge::yamrb::value::RValue::Bool(true)
     ));
 }
+
+// Gated on the predicate that decides whether ENV is filled at all: where there
+// is a host to ask, asking it has to yield entries. The test above passes just
+// as well with the whole loop deleted.
+#[cfg(all(feature = "wasi", any(not(target_family = "wasm"), target_os = "wasi")))]
+#[test]
+fn env_carries_the_host_variables_test() {
+    let code = "
+    def test_main
+      ENV.size > 0
+    end
+    ";
+    let binary = mrbc_compile("env_carries_host_variables", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    let result = mrb_funcall(&mut vm, None, "test_main", &[]).unwrap();
+    assert!(matches!(
+        result.as_ref().value,
+        mrubyedge::yamrb::value::RValue::Bool(true)
+    ));
+}

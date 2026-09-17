@@ -489,3 +489,154 @@ fn hash_cat_does_not_panic_when_the_source_hash_is_shared_borrowed_test() {
     let result: i64 = result.as_ref().try_into().unwrap();
     assert_eq!(result, 2);
 }
+
+// Compiles and runs `code`, then calls `test_main` and converts the result to an i64.
+fn run_test_main_i(name: &'static str, code: &'static str) -> i64 {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[])
+        .unwrap()
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
+
+#[test]
+fn hash_key_p_test() {
+    let code = r##"
+    def test_main
+      h = {a: 1, b: 2}
+      "#{h.key?(:a)}|#{h.key?(:z)}|#{h.member?(:b)}|#{h.include?(:b)}"
+    end
+    "##;
+    let binary = mrbc_compile("hash_key_p", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_main", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "true|false|true|true");
+}
+
+#[test]
+fn hash_fetch_test() {
+    let code = r##"
+    def test_main
+      h = {a: 1}
+      missing = begin
+        h.fetch(:z)
+        "no error"
+      rescue KeyError
+        "KeyError"
+      end
+      "#{h.fetch(:a)}|#{h.fetch(:z, 9)}|#{h.fetch(:z) { |k| 7 }}|#{missing}"
+    end
+    "##;
+    let binary = mrbc_compile("hash_fetch", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_main", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "1|9|7|KeyError");
+}
+
+#[test]
+fn hash_dig_test() {
+    let code = r##"
+    def test_main
+      h = {a: {b: {c: 3}}}
+      "#{h.dig(:a, :b, :c)}|#{h.dig(:a, :z, :c).nil?}"
+    end
+    "##;
+    let binary = mrbc_compile("hash_dig", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let result = mrb_funcall(&mut vm, None, "test_main", &[]).unwrap();
+    let result: String = result.as_ref().try_into().unwrap();
+    assert_eq!(result, "3|true");
+}
+
+#[test]
+fn hash_each_pair_test() {
+    let code = "
+    def test_hash_1
+      hash = {
+        \"foo\" => 1,
+        \"bar\" => 2,
+        \"baz\" => 3,
+      }
+      res = \"\"
+      hash.each_pair do |key, value|
+        res += key + value.to_s
+      end
+      res
+    end
+    ";
+    let binary = mrbc_compile("hash_each_pair", code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+
+    let args = vec![];
+    let value = mrb_funcall(&mut vm, None, "test_hash_1", &args).unwrap();
+    let value: String = value.as_ref().try_into().unwrap();
+    assert!(value.contains("foo1"));
+    assert!(value.contains("bar2"));
+    assert!(value.contains("baz3"));
+}
+
+#[test]
+fn hash_each_key_and_value_test() {
+    let code = "
+    def test_main
+      h = { 'a' => 1, 'b' => 2 }
+      keys = 0
+      values = 0
+      h.each_key { |_k| keys += 1 }
+      h.each_value { |v| values += v }
+      keys * 100 + values
+    end
+    ";
+    assert_eq!(run_test_main_i("hash_each_half", code), 203);
+}
+
+#[test]
+fn hash_each_key_rejects_a_non_block_argument_test() {
+    // A non-Proc argument must raise, not reach mrb_call_block, which panics.
+    let code = "
+    def test_main
+      h = { 'a' => 1 }
+      begin
+        h.each_key(0)
+        0
+      rescue ArgumentError
+        1
+      end
+    end
+    ";
+    assert_eq!(run_test_main_i("hash_each_key_non_block", code), 1);
+}
+
+#[test]
+fn hash_dig_requires_at_least_one_key_test() {
+    let code = "
+    def test_main
+      h = { 'a' => 1 }
+      begin
+        h.dig
+        0
+      rescue ArgumentError
+        1
+      end
+    end
+    ";
+    assert_eq!(run_test_main_i("hash_dig_no_keys", code), 1);
+}
+}

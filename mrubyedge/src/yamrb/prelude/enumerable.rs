@@ -33,6 +33,18 @@ pub(crate) fn initialize_enumerable(vm: &mut VM) {
     mrb_define_module_cmethod(
         vm,
         enumerable_module.clone(),
+        "filter",
+        Box::new(mrb_enumerable_select),
+    );
+    mrb_define_module_cmethod(
+        vm,
+        enumerable_module.clone(),
+        "reject",
+        Box::new(mrb_enumerable_delete_if),
+    );
+    mrb_define_module_cmethod(
+        vm,
+        enumerable_module.clone(),
         "all?",
         Box::new(mrb_enumerable_all),
     );

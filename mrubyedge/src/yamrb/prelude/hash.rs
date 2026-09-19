@@ -8,7 +8,7 @@ use crate::{
             mrb_funcall,
         },
         prelude::module::mrb_include_module,
-        value::{RHashMap, RObject, RValue},
+        value::{RHashMap, RObject, RSym, RValue},
         vm::VM,
     },
 };
@@ -536,10 +536,37 @@ fn mrb_hash_values(vm: &mut VM, _args: &[Rc<RObject>]) -> Result<Rc<RObject>, Er
     Ok(RObject::array(values).to_refcount_assigned())
 }
 
+// `options.merge(href: path)` — a bare keyword call with no positional
+// argument at all — has no ENTER instruction to fold `href: path` into a
+// trailing Hash the way a Ruby callee's ENTER does when it declares no
+// keyword parameter: a cfunc reads its arguments from `args`, which stays
+// empty. Reading the call's kwargs back out and building the Hash `merge`
+// actually expects here keeps this cfunc working with that call shape.
+fn bare_kwargs_as_hash(vm: &VM) -> Option<Rc<RObject>> {
+    let kwargs = vm.get_kwargs()?;
+    if kwargs.is_empty() {
+        return None;
+    }
+    let mut map = RHashMap::default();
+    for (name, value) in kwargs.into_iter() {
+        let key = RObject::symbol(RSym::new(name)).to_refcount_assigned();
+        if let Ok(hash_key) = key.as_hash_key() {
+            map.insert(hash_key, (key, value));
+        }
+    }
+    Some(RObject::hash(map).to_refcount_assigned())
+}
+
 // Hash#merge: Returns a new hash containing the contents of other_hash and the contents of self
 fn mrb_hash_merge(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this = vm.getself()?;
-    let other = &args[0];
+    let kwarg_hash = args.is_empty().then(|| bare_kwargs_as_hash(vm)).flatten();
+    let other = kwarg_hash
+        .as_ref()
+        .or_else(|| args.first())
+        .ok_or_else(|| {
+            Error::ArgumentError("wrong number of arguments (given 0, expected 1)".to_string())
+        })?;
 
     let this_hash = match &this.value {
         RValue::Hash(h) => h.borrow().clone(),
@@ -568,7 +595,13 @@ fn mrb_hash_merge(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Erro
 // Hash#merge!: Adds the contents of other_hash to self (destructive)
 fn mrb_hash_merge_self(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
     let this = vm.getself()?;
-    let other = &args[0];
+    let kwarg_hash = args.is_empty().then(|| bare_kwargs_as_hash(vm)).flatten();
+    let other = kwarg_hash
+        .as_ref()
+        .or_else(|| args.first())
+        .ok_or_else(|| {
+            Error::ArgumentError("wrong number of arguments (given 0, expected 1)".to_string())
+        })?;
 
     let other_hash = match &other.value {
         RValue::Hash(h) => h,

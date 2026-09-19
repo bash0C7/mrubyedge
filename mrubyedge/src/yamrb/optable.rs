@@ -1111,8 +1111,7 @@ pub(crate) fn op_ssend(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_ssendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     let n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
-    do_op_send(vm, 0, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(vm, 0, Some(a as usize + n + kw_slots(c) + 1), a, b, c)
 }
 
 pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1123,8 +1122,14 @@ pub(crate) fn op_send(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 pub(crate) fn op_sendb(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let (a, b, c) = operand.as_bbb()?;
     let n: usize = (c & 0x0f) as usize;
-    let k: usize = (c >> 4) as usize;
-    do_op_send(vm, a as usize, Some(a as usize + n + k * 2 + 1), a, b, c)
+    do_op_send(
+        vm,
+        a as usize,
+        Some(a as usize + n + kw_slots(c) + 1),
+        a,
+        b,
+        c,
+    )
 }
 
 pub(crate) fn op_ssend0(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
@@ -1172,6 +1177,17 @@ pub(crate) fn do_op_send(
 // know at compile time how many pairs `opts` will hold at runtime.
 pub(crate) const CALL_MAXARGS: usize = 15;
 
+// How many registers a call site's keyword arguments occupy: two per pair
+// normally, or exactly one when they arrive packed (`f(**opts)`, `k ==
+// CALL_MAXARGS`) — a caller forwarding `**options, &block` to another call
+// (as `link_to`'s `@component.build_link_to(self, path, **options, &block)`
+// does) packs its keywords, so the block sits right after that one
+// register, not thirty registers further out as `k * 2` would place it.
+fn kw_slots(c: u8) -> usize {
+    let k: usize = (c >> 4) as usize;
+    if k == CALL_MAXARGS { 1 } else { k * 2 }
+}
+
 pub(crate) fn do_op_send_with_id(
     vm: &mut VM,
     recv_index: usize,
@@ -1190,7 +1206,7 @@ pub(crate) fn do_op_send_with_id(
         return Ok(());
     }
 
-    let block_index = a as usize + n + k * 2 + 1;
+    let block_index = a as usize + n + kw_slots(c) + 1;
 
     let recv = if recv_index == 0 {
         vm.getself()?

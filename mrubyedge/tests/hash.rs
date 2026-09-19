@@ -639,4 +639,3 @@ fn hash_dig_requires_at_least_one_key_test() {
     ";
     assert_eq!(run_test_main_i("hash_dig_no_keys", code), 1);
 }
-}

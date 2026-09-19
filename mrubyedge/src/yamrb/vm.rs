@@ -958,6 +958,8 @@ pub struct CALLINFO {
     pub return_reg: usize,
     pub method_owner: Option<Rc<RModule>>,
     pub has_block: Cell<bool>,
+    /// Caller's environment, restored on return.
+    pub upper: Option<Rc<ENV>>,
 }
 
 #[derive(Debug, Clone)]

@@ -84,6 +84,13 @@ pub struct VM {
     pub method_frame: Option<(RSym, Rc<RModule>)>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
     pub kargs: RefCell<Option<RHashMap<RSym, Rc<RObject>>>>,
+    // The same pairs as `kargs`, but with their original key objects —
+    // `"key" => 1` keeps a String key, `key: 1` a Symbol — which `kargs`
+    // cannot represent since every key is interned into an RSym. Consumed
+    // by `op_enter` when a callee declares no keyword parameter at all: the
+    // pairs collapse into one trailing Hash argument, and only the raw
+    // objects let that Hash use the keys the caller actually wrote.
+    pub kargs_raw: RefCell<Option<Vec<(Rc<RObject>, Rc<RObject>)>>>,
     pub current_kargs: RefCell<Option<Rc<KArgs>>>,
     pub target_class: TargetContext,
     pub exception: Option<Rc<RException>>,
@@ -279,6 +286,7 @@ impl VM {
             return_reg: None,
         }));
         let kargs = RefCell::new(None);
+        let kargs_raw = RefCell::new(None);
         let current_kargs = RefCell::new(None);
         let target_class = TargetContext::Class(object_class.clone());
         let exception = None;
@@ -314,6 +322,7 @@ impl VM {
             method_frame: None,
             current_breadcrumb,
             kargs,
+            kargs_raw,
             current_kargs,
             target_class,
             exception,

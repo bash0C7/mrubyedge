@@ -1163,6 +1163,13 @@ pub(crate) fn do_op_send(
 // The body of OP_SEND, for a method named directly rather than through the
 // IREP's symbol table. OP_EQ, OP_GETIDX and other direct dispatches go
 // through here instead of building a symbol lookup first.
+//
+// mruby's CALL_MAXARGS. In OP_SEND's n and k nibbles it means "packed":
+// keyword arguments arrive as one already-built Hash in a single register,
+// the way `f(**opts)` or `f(a: 1, **opts)` compile — the parser cannot
+// know at compile time how many pairs `opts` will hold at runtime.
+pub(crate) const CALL_MAXARGS: usize = 15;
+
 pub(crate) fn do_op_send_with_id(
     vm: &mut VM,
     recv_index: usize,
@@ -1196,16 +1203,25 @@ pub(crate) fn do_op_send_with_id(
         .collect::<Vec<_>>();
 
     let mut map = RHashMap::default();
-    for i in 0..k {
-        let key = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 1)?
-            .intern()?;
-        let val = vm
-            .get_current_regs_cloned(a as usize + n + i * 2 + 2)?
-            .clone();
-        map.insert(key, val);
+    let mut raw: Vec<(Rc<RObject>, Rc<RObject>)> = Vec::new();
+    if k == CALL_MAXARGS {
+        let packed = vm.get_current_regs_cloned(a as usize + n + 1)?;
+        for (_, (key, val)) in packed.hash_borrow_mut()?.iter() {
+            map.insert(key.intern()?, val.clone());
+            raw.push((key.clone(), val.clone()));
+        }
+    } else {
+        for i in 0..k {
+            let key_obj = vm.get_current_regs_cloned(a as usize + n + i * 2 + 1)?;
+            let val = vm
+                .get_current_regs_cloned(a as usize + n + i * 2 + 2)?
+                .clone();
+            map.insert(key_obj.intern()?, val.clone());
+            raw.push((key_obj, val));
+        }
     }
     vm.kargs.borrow_mut().replace(map);
+    vm.kargs_raw.borrow_mut().replace(raw);
 
     // Known approximation: matching on IREP identity treats a method that
     // forwards a block created by ANOTHER activation of the same IREP as
@@ -1516,6 +1532,30 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
         .is_some_and(|ci| ci.has_block.get());
     if arg_info.n1 == 1 && has_block {
         return Err(Error::ArgumentError("no block accepted".to_string()));
+    }
+    // A caller writing `m(1, key: 2)` cannot know whether the callee
+    // declares keyword parameters — the compiler emits keyword pairs
+    // either way. When the signature has none (no `k` keywords and no
+    // `**rest`), they collapse into one trailing Hash argument, the way a
+    // Ruby DSL usually spells a bag of options, and the pairs' registers
+    // become that argument's slot.
+    let mut argc = argc;
+    if arg_info.k == 0 && arg_info.d == 0 {
+        let raw_pairs = vm.kargs_raw.borrow_mut().take();
+        if let Some(raw) = raw_pairs {
+            if !raw.is_empty() {
+                let mut hash = RHashMap::default();
+                for (key, val) in raw.into_iter() {
+                    hash.insert(key.as_hash_key()?, (key, val));
+                }
+                vm.current_regs()[argc + 1].replace(RObject::hash(hash).to_refcount_assigned());
+                argc += 1;
+            }
+        }
+        // Whatever `kwarg_op_enter` below does with `vm.kargs` next (there is
+        // no keyword parameter here to read it), the raw pairs must not
+        // survive to leak into a later, unrelated call.
+        vm.kargs.borrow_mut().take();
     }
     let m1_argc = arg_info.m1 as usize;
     for i in 0..m1_argc {

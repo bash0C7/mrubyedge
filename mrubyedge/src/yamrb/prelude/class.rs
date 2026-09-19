@@ -78,6 +78,19 @@ fn mrb_class_new(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error
 
     let obj = RObject::instance(class).to_refcount_assigned();
 
+    // `Class#new` itself never declares keyword parameters, so its own
+    // `op_enter` already drained `vm.kargs` into `vm.current_kargs` before
+    // this cfunc ran (the way every native method's frame does). Read them
+    // back out and hand them to `initialize` as if the caller had targeted
+    // it directly — otherwise a keyword-declaring `initialize` finds nothing
+    // to read.
+    if let Some(current) = vm.current_kargs.borrow().as_ref() {
+        let pairs = current.args.borrow();
+        if !pairs.is_empty() {
+            vm.kargs.borrow_mut().replace(pairs.clone());
+        }
+    }
+
     mrb_funcall(vm, Some(obj.clone()), "initialize", args)?;
 
     Ok(obj)

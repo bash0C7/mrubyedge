@@ -523,6 +523,20 @@ fn object_public_send_no_args_test() {
 }
 
 // Compiles and runs `code`, then calls `test_main` and converts the result
+// to an i64.
+fn run_test_main_i(name: &'static str, code: &'static str) -> i64 {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[])
+        .unwrap()
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
+
+// Compiles and runs `code`, then calls `test_main` and converts the result
 // to a String.
 fn run_test_main_s(name: &'static str, code: &'static str) -> String {
     let binary = mrbc_compile(name, code);
@@ -767,4 +781,103 @@ fn a_symbol_asked_for_a_symbol_is_itself_test() {
     end
     ";
     assert_eq!(run_test_main_s("symbol_to_sym", code), "a,b");
+}
+#[test]
+fn object_dunder_send_dispatches_with_args_test() {
+    let code = r#"
+    class TestClass
+      def hello(name)
+        "Hello, #{name}!"
+      end
+    end
+
+    def test_main
+      TestClass.new.__send__("hello", "World")
+    end
+    "#;
+    assert_eq!(run_test_main_s("dunder_send", code), "Hello, World!");
+}
+
+#[test]
+fn object_dunder_id_equals_object_id_test() {
+    let code = "
+    def test_main
+      obj = Object.new
+      obj.__id__ == obj.object_id
+    end
+    ";
+    assert!(run_test_main_b("dunder_id_equals_object_id", code));
+}
+
+#[test]
+fn object_dunder_id_differs_between_objects_test() {
+    let code = r##"
+    def test_main
+      a = Object.new
+      b = Object.new
+      "#{a.__id__ == b.__id__}"
+    end
+    "##;
+    assert_eq!(run_test_main_s("dunder_id_differs", code), "false");
+}
+
+#[test]
+fn object_freeze_is_accepted_and_frozen_stays_false_test() {
+    // Characterization: the VM has no frozen state. `freeze` returns the
+    // receiver and `frozen?` is always false; a future implementation of
+    // freezing is expected to flip the second half of this expectation.
+    let code = r##"
+    NAMES = ['a', 'b'].freeze
+
+    def test_main
+      obj = Object.new
+      before = obj.frozen?
+      obj.freeze
+      "#{NAMES.size},#{before},#{obj.frozen?}"
+    end
+    "##;
+    assert_eq!(
+        run_test_main_s("frozen_before_after", code),
+        "2,false,false"
+    );
+}
+
+#[test]
+fn require_of_something_not_linked_in_raises_load_error_test() {
+    // There is no load path: a file that was never linked into the bytecode
+    // raises LoadError, so code probing for an optional library still loads.
+    let code = "
+    def test_main
+      begin
+        require 'definitely_not_linked_in'
+        'loaded'
+      rescue LoadError
+        'not found'
+      end
+    end
+    ";
+    assert_eq!(run_test_main_s("require_missing", code), "not found");
+}
+
+#[test]
+fn require_of_a_linked_in_feature_answers_false_test() {
+    // A library this build already carries answers `false`, the way a
+    // repeated require does, instead of raising. This worktree (built on
+    // unit #10's tip, before the units that add URI/JSON/etc. preludes)
+    // carries none of `require`'s real recognized libraries, so the class
+    // is defined here to stand in for one already being linked in.
+    let code = "
+    class URI
+    end
+
+    def test_main
+      begin
+        require 'uri'
+        'linked'
+      rescue LoadError
+        'missing'
+      end
+    end
+    ";
+    assert_eq!(run_test_main_s("require_linked", code), "linked");
 }

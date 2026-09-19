@@ -214,3 +214,38 @@ fn proc_call_method_test() {
         .unwrap();
     assert_eq!(result, 42);
 }
+
+// Compiles and runs `code`, then calls `test_main` and converts the result
+// to a String.
+fn run_test_main_s(name: &'static str, code: &'static str) -> String {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[])
+        .unwrap()
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
+
+#[test]
+fn proc_bracket_calls_the_proc_test() {
+    let code = r##"
+    def test_main
+      my_proc = Proc.new { |a, b| a + b }
+      "#{my_proc[10, 32]},#{my_proc.call(10, 32)}"
+    end
+    "##;
+    assert_eq!(run_test_main_s("proc_bracket", code), "42,42");
+}
+
+#[test]
+fn proc_arity_test() {
+    let code = "
+    def test_main
+      [Proc.new { }.arity, Proc.new { |a, b| }.arity, Proc.new { |*a| }.arity].join(',')
+    end
+    ";
+    assert_eq!(run_test_main_s("proc_arity", code), "0,2,-1");
+}

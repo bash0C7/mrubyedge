@@ -4,10 +4,31 @@ use crate::{
     Error,
     yamrb::{
         helpers::mrb_define_singleton_cmethod,
-        value::{RObject, RValue},
+        value::{RHashMap, RObject, RSym, RValue},
         vm::VM,
     },
 };
+
+// `URI.encode_www_form(text: text)` — a bare keyword call with no
+// positional argument at all — has no ENTER instruction (this is a cfunc)
+// to fold `text: text` into a trailing Hash the way a Ruby callee's ENTER
+// does when it declares no keyword parameter. Reading the call's kwargs
+// back out when `args` is empty keeps that call shape working, the same
+// way Hash#merge and Data.new already do.
+fn bare_kwargs_as_hash(vm: &VM) -> Option<Rc<RObject>> {
+    let kwargs = vm.get_kwargs()?;
+    if kwargs.is_empty() {
+        return None;
+    }
+    let mut map = RHashMap::default();
+    for (name, value) in kwargs.into_iter() {
+        let key = RObject::symbol(RSym::new(name)).to_refcount_assigned();
+        if let Ok(hash_key) = key.as_hash_key() {
+            map.insert(hash_key, (key, value));
+        }
+    }
+    Some(RObject::hash(map).to_refcount_assigned())
+}
 
 pub(crate) fn initialize_uri(vm: &mut VM) {
     vm.define_module("URI", None);
@@ -127,10 +148,14 @@ fn push_pair(out: &mut Vec<String>, key: &Rc<RObject>, value: &Rc<RObject>) -> R
     Ok(())
 }
 
-fn mrb_uri_encode_www_form(_vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
-    let enumerable = args.first().ok_or_else(|| {
-        Error::ArgumentError("URI.encode_www_form expects an argument".to_string())
-    })?;
+fn mrb_uri_encode_www_form(vm: &mut VM, args: &[Rc<RObject>]) -> Result<Rc<RObject>, Error> {
+    let kwarg_hash = args.is_empty().then(|| bare_kwargs_as_hash(vm)).flatten();
+    let enumerable = kwarg_hash
+        .as_ref()
+        .or_else(|| args.first())
+        .ok_or_else(|| {
+            Error::ArgumentError("URI.encode_www_form expects an argument".to_string())
+        })?;
 
     let mut parts: Vec<String> = Vec::new();
     match &enumerable.value {

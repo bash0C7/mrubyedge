@@ -31,6 +31,21 @@ fn encode_www_form_from_pairs() {
     );
 }
 
+// `URI.encode_www_form(text: text)` — the shape
+// `app/funicular/components/share_links.rb` uses — is a bare keyword call
+// with no positional argument at all, which has no ENTER instruction to
+// fold it into a trailing Hash the way a Ruby callee's ENTER does. A single
+// pair sidesteps this VM's Hash having no defined iteration order.
+#[test]
+fn encode_www_form_accepts_a_bare_keyword_argument() {
+    let code = r#"
+    def test_main
+      URI.encode_www_form(text: "a b")
+    end
+    "#;
+    assert_eq!(run_test_main_s("uri_bare_kwarg", code), "text=a+b");
+}
+
 #[test]
 fn encode_and_decode_a_component() {
     let code = r##"

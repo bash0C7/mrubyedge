@@ -65,6 +65,15 @@ fn call_block(
         None => vm.method_frame.take(),
     };
 
+    // This frame's own arguments (including a trailing block, if `args`
+    // carries one) are about to be written straight into registers below,
+    // the way this function already did before `op_enter` gained the
+    // ability to relocate a block of its own. Clear a value a bytecode
+    // call site (`do_op_send_with_id`) may have left behind for some
+    // ancestor frame's `op_enter`, so it cannot leak into and overwrite
+    // what this call is about to place.
+    vm.incoming_block.borrow_mut().take();
+
     let old_callinfo = vm.current_callinfo.take();
 
     // Since call_block does not move the registers offset,

@@ -1231,20 +1231,26 @@ pub(crate) fn do_op_send_with_id(
     let mut block_written_here = false;
     if let Some(blk_index) = blk_index {
         let blk_val = vm.get_current_regs_cloned(blk_index)?;
-        if matches!(blk_val.tt, RType::Symbol) {
-            let proc_val = mrb_funcall(vm, Some(blk_val), "to_proc", &[])?;
-            args.push(proc_val);
+        let blk_val = if matches!(blk_val.tt, RType::Symbol) {
+            mrb_funcall(vm, Some(blk_val), "to_proc", &[])?
         } else {
             if let RValue::Proc(p) = &blk_val.value
                 && let Some(pirep) = &p.irep
             {
                 block_written_here = vm.current_irep.reps.iter().any(|r| Rc::ptr_eq(r, pirep));
             }
-            args.push(blk_val);
-        }
+            blk_val
+        };
+        // `args` carries the block for a native (cfunc) callee, which reads
+        // it straight out of this slice. A Ruby callee ignores `args`
+        // entirely and reads `op_enter` places it in instead (see
+        // `vm.incoming_block`), since only `op_enter` knows where that is.
+        args.push(blk_val.clone());
+        vm.incoming_block.borrow_mut().replace(Some(blk_val));
     } else {
         // When no block is provided, do not push a nil placeholder
         vm.current_regs()[block_index].replace(Rc::new(RObject::nil()));
+        vm.incoming_block.borrow_mut().replace(None);
     }
 
     let klass = recv.get_class(vm);
@@ -1623,6 +1629,29 @@ pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
 
         let kwrest = RObject::hash(map);
         vm.current_regs()[kwrest_pos].replace(kwrest.to_refcount_assigned());
+    }
+
+    // Put the block where the method body expects to find it. A call site
+    // that also passes keyword arguments leaves the block one register
+    // later than a plain positional call would (`do_op_send_with_id` wrote
+    // it just past the keyword pairs' own registers, two per pair), while
+    // the callee's compiled ENTER reads it from a position derived purely
+    // from the signature: past the required, optional, splat and post
+    // parameters, plus one more register for the keyword dict whenever the
+    // signature declares any keyword parameter or `**rest` at all. Reading
+    // the block by a fixed register offset here (the way positional
+    // parameters are read above) would need the caller's keyword-pair count,
+    // which nothing carries this far; `do_op_send_with_id` hands over the
+    // value itself instead, sidestepping that mismatch entirely. Without a
+    // block the slot still has to hold nil: the body reads it either way.
+    if arg_info.b == 1 {
+        let incoming = vm.incoming_block.borrow_mut().take();
+        if let Some(incoming) = incoming {
+            let kdict = usize::from(arg_info.k > 0 || arg_info.d == 1);
+            let block_pos = 1 + m1_argc + optional_arg + splat_arg + arg_info.m2 as usize + kdict;
+            let block = incoming.unwrap_or_else(|| RObject::nil().to_refcount_assigned());
+            vm.current_regs()[block_pos].replace(block);
+        }
     }
 
     Ok(())

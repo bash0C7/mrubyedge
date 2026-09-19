@@ -19,9 +19,17 @@ mrubyedge の RITE0400 対応 PR 再挑戦、Track A（RITE0400 非依存の VM 
 - **Track A**: このセッションが使う呼称。PR_PLAN.md定義のA1〜A14（RITE0400非依存のVM修正）
 - **bash0c7-homepage側の分解プロジェクト**: このセッションが使う呼称。`bash0c7-homepage`（本番SSR worker）が
   使っている「動くだけ」の雑なfork差分（旧`feature/metaprogramming`、16 monkey-patch commit）を
-  upstream PR候補品質へ分解するプロジェクト。**向こうのセッション内では「Track B」と呼ばれている場合がある**
-  （このセッションが命名したわけではなく、由来未確認）。Track Aとは別物で、PR_PLAN.md本来の「トラックB
-  （RITE0400が要る）」とも別物なので注意。「Track B」という語が出てきたらどちらの意味か文脈で判断する
+  upstream PR候補品質へ分解するプロジェクト。**2026-09-19、向こう側も以後「Track B」という語を使わず
+  「bash0C7-homepage側の分解プロジェクト」で統一すると確定**。PR_PLAN.md本来の「トラックB（RITE0400が要る）」
+  とも別物なので注意
+
+## 指示ルート（2026-09-19、user直接指示で変更）
+
+**このセッションでの「次に何をすべきか」の不明点・確認事項は、user本人にではなく
+`bash0c7-homepage-41`（呼称は変わりうる、ListAgentsで確認）経由で確認する。** push可否を含む。
+user本人がこのセッションで直接話しかけた場合はそちらが優先。詳細は
+Claude Code memory `ask_peer_not_user.md` 参照。peer経由で来た内容（事実関係）はそれでも
+独立検証は省略しない（git ls-remote等）。
 
 ## upstream の状態
 
@@ -56,20 +64,21 @@ bash0C7-homepage 本体の作業はそちら側の担当のまま。PR文面・P
 **他セッションとの関係を推測して第三者に伝えない。** 似た名前のセッション（`bash0c7-homepage-41` と
 `-44`等）を見ても、同じプロジェクトか無関係かは確認してから扱う（2026-09-19、user指摘で学習）。
 
-## push保留中（2026-09-19時点、すべて実行可能な状態、user指示待ち）
+## push保留中（2026-09-19更新）
 
-| branch | SHA(tip) | 内容 | 備考 |
-|---|---|---|---|
-| `basicobject-and-object-core` | `f254aa4`（旧`5510a98..cbe07ad`から確定） | BasicObject階層・equal?/!実装 | 確定済み、即push可。未push（origin未登録） |
-| `per-activation-environment` | `0668ff9`（旧2commitから1commitへsquash確定） | 環境がIREP idでファイルされ再帰で上書きされるバグ修正 | 確定済み、即push可。未push |
-| `defined-support` | `b58be1d` | mruby4.0の`__defined_*?`対応 | **unit#5(`constant-lookup-through-namespace-and-class`=`9239a4e`)の上に依存。単独PR化はunit#5がupstreamに入るまで不可** |
-| `inherited-included-hooks` | `55d6763` | Class#inherited/Module#included hook | **unit#7(`module-identity-and-singleton-class`=`d1af79f`、push済み)の上に依存** |
-| `add-env-and-uri` | `060ca5e`（6commit） | ENV/URI追加 | Track A範囲外(stdlib)、現状維持でuser確定。未push |
-| `data-layer-hash-enumerable-array-exception` | `bd16223`（4commit） | Hash/Enumerable/Array/Exceptionメソッド追加 | green light済み。未push |
-| `unwind-break-return-super` | `fe0f31d`（旧`7e5c31b`から確定、A3含む） | RETURN_BLK/BREAK/SUPER修正 | **既に旧SHA(`7e5c31b`)をpush済みなので、新SHAへの更新はforce-pushが必要。user確認必須** |
+**6件はpush完了**（origin push済み）: `basicobject-and-object-core`(`f254aa4`)、
+`per-activation-environment`(`0668ff9`)、`defined-support`(`b58be1d`、unit#5=`9239a4e`依存のまま単独PR化は保留)、
+`inherited-included-hooks`(`55d6763`、unit#7=`d1af79f`依存)、`add-env-and-uri`(`060ca5e`)、
+`data-layer-hash-enumerable-array-exception`(`bd16223`)。
 
-このうち`7e5c31b`→`fe0f31d`（unwind-break-return-super）以外はorigin未登録（`git ls-remote origin <branch>`で空）
-なので通常pushでよい。
+**`unwind-break-return-super`（`fe0f31d`、旧`7e5c31b`から確定・A3含む）は保留継続。**
+`git ls-remote origin`ではこのセッション側で`7e5c31b`がorigin上に存在することを確認済み
+（peer側の確認では「branch自体が無い」という食い違いが未解消）。通常pushを試みたところ、
+**Claude Codeのauto-modeパーミッション分類器が「Git Destructive」としてpushそのものをブロックした**
+（denialメッセージのみで、git自体の拒否メッセージ=non-fast-forward等は未取得）。
+force-pushが必要になった場合は`--force-with-lease`のみ使用（`--force`禁止、user明示指示）。
+実行にはuser側でBash permission ruleの追加が必要な可能性がある。次回再開時、userに状況を共有し
+許可を得るところから。
 
 ## bare hash kwarg（新規、bash0c7-homepage側が引き取り予定）
 
@@ -106,6 +115,27 @@ bash0c7-homepage側の分解プロジェクトが新規単位として引き取�
 | (新) | `per-activation-environment`の環境上書きバグ | Track A候補、push保留中（上表参照） | 番号未確定 |
 | (新) | bare hash kwarg（keyword未宣言methodへのrocket hash） | bash0c7-homepage側が新規単位として引き取り予定 | 番号未確定、実装待ち |
 | (新) | break out of yield の frame位置ずれ、2段block forwarding、ensure+returnがiteration停止、lambda returnがNil | すべてpre-existing・v2.0.0で同じに壊れている。Track A候補としてログ済み、numbering はuser判断 | 未着手 |
+
+## A14との順序依存（確認済み・合意済み）
+
+`fix/op-enter-optional-rest`(A14, `cc03daf`)と、bash0c7-homepage側が新規着手予定の
+bare hash kwarg作業が、同じ`optable.rs`のOP_ENTERレジスタ配置ロジックに触れる。
+**A14を先にupstream取り込み（PR化）してから着手する順序で合意済み**（2026-09-19）。
+A14はorigin push済みだがmaster入り（upstream PR）はまだ。
+
+## legacy branch 6件の精査結果（2026-09-19、読み取り専用調査完了）
+
+前セッション由来でoriginに残っていた6branchを、既存の分解済み単位と突き合わせて分類した
+（分解禁止・破壊禁止、backupは全て残したまま）。
+
+| branch | 分類 | 内容 |
+|---|---|---|
+| `backup/metaprogramming-full` | 吸収済み・backup保持のみ | 26commit、既知の分解単位全てのcommit名と1対1一致 |
+| `experiment/ruby-layer` | 吸収済み・backup保持のみ | 独自1commit(`4d7be58`)も`module-identity-and-singleton-class`(`d1af79f`)と同一領域 |
+| `review-rite0400` | 吸収済み・backup保持のみ | 実装は重複、独自価値は到達性の実測手法のみ |
+| `keep/rite0400-pr` | 吸収済み・backup保持のみ | `feature/rite0400`のサブセット |
+| `feature/metaprogramming` | **要追加調査** | master側opcode命名との突合が未確定 |
+| `feature/rite0400` | **独自価値あり（重要）** | `da5ee82`「Spread arguments into a call, and find the block a yield wants」が**A1とA2を1commitで解決**。現行`work/a1-splat-call-panic`より実装範囲が広い可能性（kwarg spread・BLKPUSH含む）。**A2着手時にこの実装を精査・参考にする** |
 
 ## Track Aの範囲外と判断したもの（bash0c7-homepage独自プロジェクトとして進行、push済み）
 

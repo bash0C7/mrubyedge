@@ -76,6 +76,11 @@ fn call_block(
 
     let old_callinfo = vm.current_callinfo.take();
 
+    // Record the argument count for OP_ENTER, which cannot read it from
+    // `current_callinfo` while that field is cleared for this frame (see
+    // the field's own doc comment on `VM`).
+    let prev_funcall_argc = vm.funcall_argc.replace(args.len());
+
     // Since call_block does not move the registers offset,
     // keep the state before the call.
     let prev_self = vm.current_regs()[0].replace(recv);
@@ -95,6 +100,8 @@ fn call_block(
     vm.upper = block.environ;
 
     let res = vm.run_internal();
+
+    vm.funcall_argc = prev_funcall_argc;
 
     if let Some(prev) = prev_self {
         vm.current_regs()[0].replace(prev);

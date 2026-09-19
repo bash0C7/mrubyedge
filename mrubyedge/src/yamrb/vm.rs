@@ -82,6 +82,12 @@ pub struct VM {
     /// set while such a method runs and cleared while a plain block runs,
     /// so `super` never reads a stale identity.
     pub method_frame: Option<(RSym, Rc<RModule>)>,
+    // `call_block` (mrb_funcall's route into a Ruby method or block) clears
+    // `current_callinfo` while its callee runs, so `op_enter` cannot read an
+    // argument count from there the way it does for a bytecode-compiled call
+    // site. This carries that count across instead, restored by the caller
+    // once the callee returns.
+    pub funcall_argc: Option<usize>,
     pub current_breadcrumb: Option<Rc<Breadcrumb>>,
     pub kargs: RefCell<Option<RHashMap<RSym, Rc<RObject>>>>,
     // The same pairs as `kargs`, but with their original key objects —
@@ -297,6 +303,7 @@ impl VM {
         let regs: [Option<Rc<RObject>>; MAX_REGS_SIZE] = [const { None }; MAX_REGS_SIZE];
         let current_regs_offset = 0;
         let current_callinfo = None;
+        let funcall_argc = None;
         let current_breadcrumb = Some(Rc::new(Breadcrumb {
             upper: None,
             event: "root",
@@ -339,6 +346,7 @@ impl VM {
             current_regs_offset,
             current_callinfo,
             method_frame: None,
+            funcall_argc,
             current_breadcrumb,
             kargs,
             kargs_raw,

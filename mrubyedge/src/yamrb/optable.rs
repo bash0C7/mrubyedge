@@ -1551,8 +1551,32 @@ impl From<u32> for EnterArgInfo {
 
 pub(crate) fn op_enter(vm: &mut VM, operand: &Fetched) -> Result<(), Error> {
     let a = operand.as_w()?;
-    let argc = vm.current_callinfo.as_ref().map_or(0, |ci| ci.n_args);
     let arg_info = EnterArgInfo::from(a);
+    // A frame entered through mrb_funcall (Class#new -> initialize, and
+    // every other native-to-Ruby call) has no `current_callinfo` — call_block
+    // clears it for the callee's duration — so this falls back to the count
+    // `call_block` left on the VM instead of reading a callinfo that isn't
+    // there, which would otherwise silently read as 0 and corrupt every
+    // argument-count-dependent calculation below (optional-argument
+    // skipping, splat collection, block placement).
+    let argc = match vm.current_callinfo.as_ref() {
+        Some(ci) => ci.n_args,
+        None => {
+            let passed = vm.funcall_argc.unwrap_or(0);
+            // mrb_funcall hands a trailing block over as a plain argument,
+            // the way a Rust-implemented method receives it, while a
+            // compiled call site keeps it out of the count. Drop it back
+            // out so the two paths agree on what "argc" means.
+            let trailing_block = arg_info.b == 1
+                && passed > 0
+                && vm
+                    .current_regs()
+                    .get(passed)
+                    .and_then(|reg| reg.as_ref())
+                    .is_some_and(|arg| matches!(arg.value, RValue::Proc(_)));
+            if trailing_block { passed - 1 } else { passed }
+        }
+    };
     // proc.h MRB_ASPEC_NOBLOCK: n1 (bit 23) refuses a block argument.
     let has_block = vm
         .current_callinfo

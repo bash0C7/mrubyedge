@@ -249,3 +249,62 @@ fn proc_arity_test() {
     ";
     assert_eq!(run_test_main_s("proc_arity", code), "0,2,-1");
 }
+
+// Compiles and runs `code`, then calls `test_main` and converts the result
+// to an i64.
+fn run_test_main_i(name: &'static str, code: &'static str) -> i64 {
+    let binary = mrbc_compile(name, code);
+    let mut rite = mrubyedge::rite::load(&binary).unwrap();
+    let mut vm = mrubyedge::yamrb::vm::VM::open(&mut rite);
+    vm.run().unwrap();
+    mrb_funcall(&mut vm, None, "test_main", &[])
+        .unwrap()
+        .as_ref()
+        .try_into()
+        .unwrap()
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_no_parameters_test() {
+    let code = "
+    class Shape
+      def render
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:render).arity
+    end
+    ";
+    assert_eq!(run_test_main_i("instance_method_arity_none", code), 0);
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_required_parameters_test() {
+    let code = "
+    class Shape
+      def move(x, y)
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:move).arity
+    end
+    ";
+    assert_eq!(run_test_main_i("instance_method_arity_required", code), 2);
+}
+
+#[test]
+fn instance_method_arity_for_a_method_with_a_splat_test() {
+    let code = "
+    class Shape
+      def scale(*args)
+      end
+    end
+
+    def test_main
+      Shape.instance_method(:scale).arity
+    end
+    ";
+    assert_eq!(run_test_main_i("instance_method_arity_splat", code), -1);
+}
